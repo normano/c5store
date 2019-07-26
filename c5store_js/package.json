@@ -9,6 +9,10 @@
   },
   "author": "Norman Ovenseri",
   "license": "MPL-2.0",
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/normano/c5store.git"
+  },
   "dependencies": {
     "@teppeis/multimaps": "^1.1.0",
     "fs-extra": "^8.1.0",
