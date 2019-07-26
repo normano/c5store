@@ -1,10 +1,10 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha1",
   "description": "All emcompassing configuration to meet all needs",
   "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo \"Error: no test specified\"",
     "build": "tsc"
   },
   "author": "Norman Ovenseri",
