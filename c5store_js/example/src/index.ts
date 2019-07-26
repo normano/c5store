@@ -1,7 +1,7 @@
-import {createC5Store, defaultConfigFiles} from "@excsn/c5store";
+import {createC5Store, defaultConfigFiles} from "@exforte/c5store";
 import path from "path";
-import * as telemetry from "@excsn/c5store/dist/telemetry";
-import { C5FileValueProvider } from "@excsn/c5store/dist/providers";
+import * as telemetry from "@exforte/c5store/dist/telemetry";
+import { C5FileValueProvider } from "@exforte/c5store/dist/providers";
 
 async function main() {
 
