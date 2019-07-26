@@ -33,9 +33,10 @@ IMPORTANT: Look at the example folder for a implementation and how to use the C5
 # API
 
 createC5Store(configFilePaths: Array<string>, logger: Logger, stats: StatsRecorder)
+- Creates a 2-tuple containing C5Store and C5Store manager.
 
 C5Store
-- get(keyPath: string) 
+- get(keyPath: string)
   - Gets data immediately from the store
 - subscribe(keyPath: string, listener: ChangeListener) 
   - Listens to changes to the given keyPath. keyPath can be any the entire path or ancestors. By listening to an ancestor, one will receive one change event even if two children change.
