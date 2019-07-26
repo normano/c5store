@@ -1,0 +1,7 @@
+example:
+  foo: BAR
+bill:
+  barr: AG
+  bullshit:
+    .provider: resources
+    path: "pub_data"
