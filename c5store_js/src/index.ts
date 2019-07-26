@@ -89,20 +89,24 @@ export class C5StoreMgr {
 
     await vProvider.hydrate(this._set, true);
 
-    this._logger.debug(`Will refresh ${name} Value Provider every ${refreshPeriodSec} seconds.`);
+    if (refreshPeriodSec > 0) {
+      this._logger.debug(`Will refresh ${name} Value Provider every ${refreshPeriodSec} seconds.`);
 
-    let refreshRecurrenceRule = new nodeSchedule.RecurrenceRule();
-    let minutes = Math.floor(refreshPeriodSec / 60);
-    let seconds = (refreshPeriodSec - (minutes * 60));
-    
-    refreshRecurrenceRule.second = new nodeSchedule.Range(0, 59, seconds);
-    refreshRecurrenceRule.minute = new nodeSchedule.Range(0, 59, minutes);
+      let refreshRecurrenceRule = new nodeSchedule.RecurrenceRule();
+      let minutes = Math.floor(refreshPeriodSec / 60);
+      let seconds = (refreshPeriodSec - (minutes * 60));
+      
+      refreshRecurrenceRule.second = new nodeSchedule.Range(0, 59, seconds);
+      refreshRecurrenceRule.minute = new nodeSchedule.Range(0, 59, minutes);
 
-    let scheduledProviderHydate = nodeSchedule.scheduleJob(refreshRecurrenceRule, () => {
-      vProvider.hydrate(this._set, true);
-    });
+      let scheduledProviderHydate = nodeSchedule.scheduleJob(refreshRecurrenceRule, () => {
+        vProvider.hydrate(this._set, true);
+      });
 
-    this._scheduledProviderHydates.push(scheduledProviderHydate);
+      this._scheduledProviderHydates.push(scheduledProviderHydate);
+    } else {
+      this._logger.debug(`Will not be refreshing ${name} Value Provider`);
+    }
   }
 
   stop() {
