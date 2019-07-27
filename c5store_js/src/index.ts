@@ -5,7 +5,7 @@ import _merge from "lodash.merge";
 import nodeSchedule from "node-schedule";
 import path from "path";
 
-import {C5DataStore, GetDataFn, SetDataFn} from "./internal";
+import {C5DataStore, GetDataFn, SetDataFn, HydrateContext} from "./internal";
 import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers";
 import { StatsRecorder, Logger } from "./telemetry";
 
@@ -79,6 +79,8 @@ export class C5StoreMgr {
     refreshPeriodSec: number,
   ): Promise<void> {
     
+    let hydrateContext = new HydrateContext(this._logger);
+
     this._valueProviders.set(name, vProvider);
 
     let values = this._providedData.get(name);
@@ -87,7 +89,7 @@ export class C5StoreMgr {
       await vProvider.register(value);
     }
 
-    await vProvider.hydrate(this._set, true);
+    await vProvider.hydrate(this._set, true, hydrateContext);
 
     if (refreshPeriodSec > 0) {
       this._logger.debug(`Will refresh ${name} Value Provider every ${refreshPeriodSec} seconds.`);
@@ -100,7 +102,7 @@ export class C5StoreMgr {
       refreshRecurrenceRule.minute = new nodeSchedule.Range(0, 59, minutes);
 
       let scheduledProviderHydate = nodeSchedule.scheduleJob(refreshRecurrenceRule, () => {
-        vProvider.hydrate(this._set, true);
+        vProvider.hydrate(this._set, true, hydrateContext);
       });
 
       this._scheduledProviderHydates.push(scheduledProviderHydate);

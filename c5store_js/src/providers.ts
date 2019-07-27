@@ -1,7 +1,9 @@
 import fs from "fs-extra";
 import path from "path";
 
-import { SetDataFn } from "./internal";
+import { SetDataFn, HydrateContext } from "./internal";
+import { C5ValueDeserializer } from "./serialization";
+import { Logger } from "./telemetry";
 
 export const CONFIG_KEY_KEYNAME = ".key";
 export const CONFIG_KEY_KEYPATH = ".keyPath";
@@ -25,7 +27,7 @@ export interface C5ValueProvider {
    * Fetch data and push into data store
    * @param force Forces changed and unchanged data to be refreshed
    */
-  hydrate(setData: SetDataFn, force: boolean): Promise<void>;
+  hydrate(setData: SetDataFn, force: boolean, context: HydrateContext): Promise<void>;
 }
 
 export class C5ValueProviderSchema {
@@ -44,6 +46,7 @@ export class C5ValueProviderSchema {
 export class C5FileValueProviderSchema extends C5ValueProviderSchema {
   path: string;
   encoding: string = "utf-8";
+  format: string = "raw";
 
   constructor(data: any) {
     super(data);
@@ -52,6 +55,10 @@ export class C5FileValueProviderSchema extends C5ValueProviderSchema {
 
     if ("encoding" in data) {
       this.encoding = data.encoding;
+    }
+
+    if ("format" in data) {
+      this.format = data.format;
     }
   }
 }
@@ -62,9 +69,10 @@ export class C5FileValueProviderSchema extends C5ValueProviderSchema {
 export class C5FileValueProvider implements C5ValueProvider {
 
   private _keyDataMap: Map<string, C5FileValueProviderSchema> = new Map<string, C5FileValueProviderSchema>();
+  private _deserializers: Map<string, C5ValueDeserializer> = new Map<string, C5ValueDeserializer>();
 
   constructor(
-    private _fileRootDir: string
+    private _fileRootDir: string,
   ) {}
 
   public async register(vpData: any): Promise<void> {
@@ -79,7 +87,11 @@ export class C5FileValueProvider implements C5ValueProvider {
     this._keyDataMap.delete(keyPath);
   }
 
-  public async hydrate(setData: SetDataFn, force: boolean): Promise<void> {
+  public registerDeserializer(formatName: string, deserializer: C5ValueDeserializer) {
+    this._deserializers.set(formatName, deserializer);
+  }
+
+  public async hydrate(setData: SetDataFn, force: boolean, context: HydrateContext): Promise<void> {
     
     for(let [keyPath, vpData] of this._keyDataMap) {
 
@@ -95,7 +107,23 @@ export class C5FileValueProvider implements C5ValueProvider {
       }
 
       let fileContents = await fs.readFile(filePath, vpData.encoding);
-      setData(keyPath, fileContents);
+      let deserializedValue = null;
+
+      if (vpData.format != "raw") {
+
+        if(!this._deserializers.has(vpData.format)) {
+
+          context.logger.warn(`${vpData.vKeyPath} cannot be deserialized since deserializer ${vpData.format} does not exist`);
+          
+          continue;
+        }
+        let deserializer = this._deserializers.get(vpData.format);
+        deserializedValue = deserializer.deserialize(fileContents);
+      } else {
+        deserializedValue = fileContents;
+      }
+
+      setData(keyPath, deserializedValue);
     }
   }
 }

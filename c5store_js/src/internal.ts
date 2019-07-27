@@ -1,3 +1,5 @@
+import { Logger } from "./telemetry";
+
 export class C5DataStore {
   private _data: Map<string, any> = new Map<string, any>();
 
@@ -12,3 +14,10 @@ export class C5DataStore {
 
 export type GetDataFn = (key: string) => any;
 export type SetDataFn = (key: string, value: any) => void;
+
+export class HydrateContext {
+  
+  constructor(
+    public logger: Logger,
+  ) {}
+}
