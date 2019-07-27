@@ -2,8 +2,7 @@ import fs from "fs-extra";
 import path from "path";
 
 import { SetDataFn, HydrateContext } from "./internal";
-import { C5ValueDeserializer } from "./serialization";
-import { Logger } from "./telemetry";
+import { C5ValueDeserializer, C5JSONValueDeserializer, C5YAMLValueDeserializer } from "./serialization";
 
 export const CONFIG_KEY_KEYNAME = ".key";
 export const CONFIG_KEY_KEYPATH = ".keyPath";
@@ -69,11 +68,20 @@ export class C5FileValueProviderSchema extends C5ValueProviderSchema {
 export class C5FileValueProvider implements C5ValueProvider {
 
   private _keyDataMap: Map<string, C5FileValueProviderSchema> = new Map<string, C5FileValueProviderSchema>();
-  private _deserializers: Map<string, C5ValueDeserializer> = new Map<string, C5ValueDeserializer>();
 
   constructor(
     private _fileRootDir: string,
+    private _deserializers: Map<string, C5ValueDeserializer> = new Map<string, C5ValueDeserializer>()
   ) {}
+
+  public static createDefault(fileRootDir: string): C5FileValueProvider {
+
+    let deserializers = new Map<string, C5ValueDeserializer>();
+    deserializers.set("json", new C5JSONValueDeserializer());
+    deserializers.set("yaml", new C5YAMLValueDeserializer());
+
+    return new C5FileValueProvider(fileRootDir, deserializers);
+  }
 
   public async register(vpData: any): Promise<void> {
 
