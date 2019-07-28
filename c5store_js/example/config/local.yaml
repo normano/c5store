@@ -13,3 +13,7 @@ bill:
   bullshit:
     .provider: resources
     path: "pub_data"
+list_of_items:
+- "Does"
+- "This"
+- "work?"

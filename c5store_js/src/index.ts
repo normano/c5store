@@ -258,7 +258,7 @@ function traverseConfig(rawConfigData: object, configData: any, providedData: Ar
     let value = rawConfigData[key];
     let newKeyPath = (keyPath == null) ? key : `${keyPath}.${key}`;
 
-    if((value instanceof Object)) {
+    if((value instanceof Object) && !Array.isArray(value)) {
 
       let nextConfigData = rawConfigData[key];
 

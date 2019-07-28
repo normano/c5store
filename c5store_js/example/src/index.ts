@@ -36,7 +36,8 @@ async function main() {
   logger.info(`bill.bullshit ${c5Store.get("bill.bullshit")}`);
   logger.info(`example.junk ${util.inspect(c5Store.get("example.junk"))}`);
   logger.info(`example.secret ${util.inspect(c5Store.get("example.secret"))}`);
-
+  logger.info(`list_of_items ${util.inspect(c5Store.get("list_of_items"))}`);
+  
   c5StoreMgr.stop();
 }
 
