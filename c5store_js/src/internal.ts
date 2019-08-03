@@ -12,11 +12,11 @@ export class C5DataStore {
   }
 }
 
-export type GetDataFn = (key: string) => any;
-export type SetDataFn = (key: string, value: any) => void;
+export type GetDataFn = (keyPath: string) => any;
+export type SetDataFn = (keyPath: string, value: any) => void;
 
 export class HydrateContext {
-  
+
   constructor(
     public logger: Logger,
   ) {}

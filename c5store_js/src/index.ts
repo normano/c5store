@@ -14,7 +14,7 @@ type ChangeListener = (notifyKeyPath: string, keyPath: string, value: any) => vo
 class C5StoreSubscriptions {
 
   _changeListeners: ArrayMultimap<string, ChangeListener> = new ArrayMultimap<string, ChangeListener>();
-  
+
   public add(keyPath: string, listener: ChangeListener) {
 
     this._changeListeners.put(keyPath, listener);
@@ -36,7 +36,7 @@ class C5StoreSubscriptions {
 
 /**
  * A way to read configuration.
- * 
+ *
  * Primarily read values and subscribe to keys.
  */
 export class C5Store {
@@ -78,7 +78,7 @@ export class C5StoreMgr {
     vProvider: C5ValueProvider,
     refreshPeriodSec: number,
   ): Promise<void> {
-    
+
     let hydrateContext = new HydrateContext(this._logger);
 
     this._valueProviders.set(name, vProvider);
@@ -97,7 +97,7 @@ export class C5StoreMgr {
       let refreshRecurrenceRule = new nodeSchedule.RecurrenceRule();
       let minutes = Math.floor(refreshPeriodSec / 60);
       let seconds = (refreshPeriodSec - (minutes * 60));
-      
+
       refreshRecurrenceRule.second = new nodeSchedule.Range(0, 59, seconds);
       refreshRecurrenceRule.minute = new nodeSchedule.Range(0, 59, minutes);
 
@@ -147,9 +147,9 @@ export async function createC5Store(configFilePaths: Array<string>, logger: Logg
 
     // Batch and Dedup: If keys in the same ancestors are being updated, then send only one update for the
     // ancestors.
-    // Can use a timer of maybe 2 seconds and reset it everytime a change notify comes in until 
+    // Can use a timer of maybe 2 seconds and reset it everytime a change notify comes in until
     // the 2 seconds is elapsed then perform change notifications.
-    
+
     clearChangeTimer();
 
     changedKeyPaths.add(key);
@@ -202,7 +202,7 @@ export async function createC5Store(configFilePaths: Array<string>, logger: Logg
     internalStore.setData(key, value);
     changeNotify(key);
   };
-  
+
   let rawConfigData = {};
 
   for(let configFilePath of configFilePaths) {
@@ -254,7 +254,7 @@ function traverseConfig(rawConfigData: object, configData: any, providedData: Ar
 
   let keys = Object.keys(rawConfigData);
   for(let key of keys) {
-    
+
     let value = rawConfigData[key];
     let newKeyPath = (keyPath == null) ? key : `${keyPath}.${key}`;
 
