@@ -1,6 +1,6 @@
-import {createC5Store, defaultConfigFiles} from "@exforte/c5store";
-import * as telemetry from "@exforte/c5store/dist/telemetry";
-import { C5FileValueProvider } from "@exforte/c5store/dist/providers";
+import {createC5Store, defaultConfigFiles} from "@excsn/c5store";
+import * as telemetry from "@excsn/c5store/dist/telemetry";
+import { C5FileValueProvider } from "@excsn/c5store/dist/providers";
 import path from "path";
 import util from "util";
 

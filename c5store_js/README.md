@@ -9,12 +9,12 @@ Read more about it: https://github.com/normano/c5store
 To start using C5Store in yor NodeJS application.
 
 1. Install as a dependency
-- `npm i @exforte/c5store`
-- `yarn add @exforte/c5store`
+- `npm i @excsn/c5store`
+- `yarn add @excsn/c5store`
 
 2. Import with 
 
-`import {createC5Store, defaultConfigFiles, C5Store, C5StoreMgr} from "@exforte/c5store";`
+`import {createC5Store, defaultConfigFiles, C5Store, C5StoreMgr} from "@excsn/c5store";`
 
 3. Create a config folder with common.yaml
 
