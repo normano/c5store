@@ -1,13 +1,13 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.0-alpha3",
+  "version": "1.0.0-alpha4",
   "description": "All encompassing configuration store to meet all needs.",
   "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\"",
     "build": "tsc"
   },
-  "author": "Norman Ovenseri",
+  "author": "Excerion Sun",
   "license": "MPL-2.0",
   "repository": {
     "type": "git",
@@ -21,8 +21,8 @@
     "node-schedule": "^1.3.2"
   },
   "devDependencies": {
-    "@types/node": "^12.6.8",
-    "typescript": "^3.5.3"
+    "@types/node": "^12.7.5",
+    "typescript": "^3.6.3"
   },
   "publishConfig": {
     "access": "public",
