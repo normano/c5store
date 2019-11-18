@@ -45,10 +45,11 @@ public final class C5StoreUtils {
     String keyPath
   ) {
 
-    var keys = rawConfigData.keySet();
+    var keysIter = rawConfigData.keySet().iterator();
 
-    for (var key : keys) {
+    while (keysIter.hasNext()) {
 
+      var key = keysIter.next();
       var value = rawConfigData.get(key);
       var newKeyPath = (keyPath == null) ? key : keyPath + "." + key;
 
@@ -61,7 +62,7 @@ public final class C5StoreUtils {
           traverseConfig(nextConfigData, configData, providedData, newKeyPath);
 
           if(nextConfigData.size() == 0) {
-            rawConfigData.remove(key);
+            keysIter.remove();
           }
 
           continue;
@@ -72,7 +73,7 @@ public final class C5StoreUtils {
 
           providedData.put(nextConfigData.get(C5Consts.CONFIG_KEY_PROVIDER).toString(), (Map<String, Object>) value);
 
-          rawConfigData.remove(key);
+          keysIter.remove();
         }
 
       } else {

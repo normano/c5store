@@ -33,7 +33,7 @@ public class Main {
       }
 
       @Override
-      public void error(String message) {
+      public void error(String message, Throwable throwable) {
 
         System.err.println(message);
       }
@@ -46,7 +46,7 @@ public class Main {
       }
 
       @Override
-      public void recordTimer(Map<String, String> tags, String name, Number value) {
+      public void recordTimer(Map<String, String> tags, String name, Duration value) {
 
       }
 

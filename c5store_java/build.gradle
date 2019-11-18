@@ -5,15 +5,13 @@ plugins {
 }
 
 ext {
-    httpComponentsVersion = '4.5.7'
-    jacksonVersion = '2.9.8'
+    jacksonVersion = '2.9.9.2'
     junitVersion = '5.3.1'
-    kryoVersion = '5.0.0-RC1'
     logbackVersion = '1.3.0-alpha4'
     slf4jVersion = '1.8.0-beta2'
 }
 
-wrapper.gradleVersion = '5.5'
+wrapper.gradleVersion = '6.0'
 
 task buildAll(type: GradleBuild) {
     tasks = [ 'build' ]
@@ -121,7 +119,7 @@ subprojects {
     }
 
     jacoco {
-        toolVersion = "0.8.2"
+        toolVersion = "0.8.4"
         reportsDir = file("$buildDir/reports/jacoco")
     }
 
@@ -196,7 +194,7 @@ subprojects {
         implementation group: 'com.google.guava', name: 'guava', version: '28.0-jre'
 
         // https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind
-        implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.9.9.2'
+        implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: jacksonVersion
         implementation group: 'org.yaml', name: 'snakeyaml', version: '1.23'
 
         implementation group: 'uk.com.robust-it', name: 'cloning', version: '1.9.10'

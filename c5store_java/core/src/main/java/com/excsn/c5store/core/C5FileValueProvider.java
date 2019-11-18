@@ -69,7 +69,7 @@ public class C5FileValueProvider implements C5ValueProvider {
 
         fileContents = Files.readString(filePath, Charset.forName(vpData.encoding));
       } catch (IOException e) {
-        context.logger.error("Could not read from file '" + filePath.toString() + "'");
+        context.logger.error("Could not read from file '" + filePath.toString() + "'", e);
         continue;
       }
 
@@ -77,9 +77,9 @@ public class C5FileValueProvider implements C5ValueProvider {
 
       if (!"raw".equals(vpData.format)) {
 
-        if (!_keyDataMap.containsKey(vpData.format)) {
+        if (!_deserializers.containsKey(vpData.format)) {
 
-          context.logger.warn(vpData.vKeyPath + "cannot be deserialized since deserializer " + vpData.format
+          context.logger.warn(vpData.vKeyPath + " cannot be deserialized since deserializer " + vpData.format
             + " does not exist");
           continue;
         }
