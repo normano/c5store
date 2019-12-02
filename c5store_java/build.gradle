@@ -11,7 +11,7 @@ ext {
     slf4jVersion = '1.8.0-beta2'
 }
 
-wrapper.gradleVersion = '6.0'
+wrapper.gradleVersion = '6.0.1'
 
 task buildAll(type: GradleBuild) {
     tasks = [ 'build' ]

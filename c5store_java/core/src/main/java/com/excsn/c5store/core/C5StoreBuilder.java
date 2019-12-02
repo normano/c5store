@@ -44,7 +44,9 @@ public class C5StoreBuilder {
     var c5DataStore = new C5DataStore();
     var changeNotifier = new ChangeNotifier(c5DataStore, c5StoreSubscriptions);
 
-    var c5Store = new C5Store(c5DataStore::getData, c5StoreSubscriptions);
+    var c5Store = new C5StoreRoot(
+      c5DataStore::getData, c5DataStore::exists, c5DataStore::keysWithPrefix, c5StoreSubscriptions
+    );
 
     SetDataFn setDataFn = (keyPath, value) -> {
       c5DataStore.setData(keyPath, value);

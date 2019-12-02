@@ -1,9 +1,5 @@
 package com.excsn.c5store.core;
 
-import com.excsn.c5store.core.C5Consts;
-import com.excsn.c5store.core.C5FileValueProvider;
-import com.excsn.c5store.core.HydrateContext;
-import com.excsn.c5store.core.SetDataFn;
 import com.excsn.c5store.core.serializers.C5ValueDeserializer;
 import com.excsn.c5store.core.telemetry.Logger;
 import org.junit.jupiter.api.Assertions;

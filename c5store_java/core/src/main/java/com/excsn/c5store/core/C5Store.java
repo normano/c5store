@@ -1,22 +1,20 @@
 package com.excsn.c5store.core;
 
-public class C5Store {
+import java.util.Iterator;
 
-  private final GetDataFn _getDataFn;
-  private final C5StoreSubscriptions _subscriptions;
+public interface C5Store {
+  <T> T get(String keyPath);
 
-  C5Store(GetDataFn getDataFn, C5StoreSubscriptions subscriptions) {
-    _getDataFn = getDataFn;
-    _subscriptions = subscriptions;
-  }
+  boolean exists(String keyPath);
 
-  public <T> T get(String keyPath) {
+  void subscribe(String keyPath, ChangeListener listener);
 
-    return _getDataFn.getData(keyPath);
-  }
+  C5Store branch(String prefixKeyPath);
 
-  public void subscribe(String keyPath, ChangeListener listener) {
+  /**
+   * @return null if root, prefixKey if branch
+   */
+  String currentKeyPath();
 
-    _subscriptions.add(keyPath, listener);
-  }
+  Iterator<String> keyPathsWithPrefix(String keyPath);
 }

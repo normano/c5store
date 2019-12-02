@@ -1,6 +1,6 @@
 # C5Store
 
-Stands for ConfigStore. This library provides a unfied store for configuration and secrets.
+Stands for ConfigStore. This library provides a unified store for configuration and secrets.
 
 
 # Concept
