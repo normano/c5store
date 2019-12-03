@@ -15,7 +15,7 @@
     "@excsn/c5store": "../"
   },
   "devDependencies": {
-    "@types/node": "^12.6.8",
-    "typescript": "^3.5.3"
+    "@types/node": "^12.12.14",
+    "typescript": "^3.7.2"
   }
 }

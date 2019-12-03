@@ -18,35 +18,27 @@ To start using C5Store in yor NodeJS application.
 
 3. Create a config folder with common.yaml
 
-`foo: bar`
+    foo: bar
+    example:
+     test:
+      it: "today"
+      my: 42
 
-4. Create the store
+4. Create and use the store
 
-`let [c5Store, c5StoreMgr] = await createC5Store(configFilePaths: Array<string>, logger: Logger, stats: StatsRecorder)`
+   let [c5Store, c5StoreMgr] = await createC5Store(configFilePaths: ["common.yaml"]);
+   
+   // Use the store
+   
+   let data = c5Store.get("foo");
 
-5. Use the store
+   // Use to get nested data by branching.
+   
+   let nestedData = c5Store.branch("example.test").get("my");
 
-`let data = c5Store.get("foo")`
+   // Inspect where you are on a branch
+   
+   console.log(c5Store.branch("example.test").currentKeyPath);
 
-IMPORTANT: Look at the example folder for a implementation and how to use the C5FileValueProvider to get data from a  file.
-
-# API
-
-createC5Store(configFilePaths: Array<string>, logger: Logger, stats: StatsRecorder)
-- Creates a 2-tuple containing C5Store and C5Store manager.
-
-C5Store
-- get(keyPath: string)
-  - Gets data immediately from the store
-- subscribe(keyPath: string, listener: ChangeListener) 
-  - Listens to changes to the given keyPath. keyPath can be any the entire path or ancestors. By listening to an ancestor, one will receive one change event even if two children change.
-
-C5StoreMgr
-- setVProvider(
-  name: string,
-  vProvider: C5ValueProvider,
-  refreshPeriodSec: number,
-)
-  - Registers the value provider, immediately fetches all values it will provide and schedules periodic refreshes. refreshPeriodSec if 0 will not perform any scheduling.
-- stop()
-  - Stops all of the scheduled refreshes.
+## Examples 
+Look at the [example](example) folder for an implementation and how to use the C5FileValueProvider to get data from a file.

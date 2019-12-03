@@ -5,7 +5,7 @@ import _merge from "lodash.merge";
 import nodeSchedule from "node-schedule";
 import path from "path";
 
-import {C5DataStore, GetDataFn, SetDataFn, HydrateContext} from "./internal";
+import {C5DataStore, GetDataFn, SetDataFn, HydrateContext, KeyExistsFn, PrefixKeysFn} from "./internal";
 import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers";
 import { StatsRecorder, Logger } from "./telemetry";
 
@@ -39,13 +39,48 @@ class C5StoreSubscriptions {
  *
  * Primarily read values and subscribe to keys.
  */
-export class C5Store {
+export interface C5Store {
 
-  constructor(private _getFn: GetDataFn, private _subscriptions: C5StoreSubscriptions) {
+  /**
+   * Gets data immediately from the store
+   */
+  get<Type>(keyPath: string): Type;
 
-  }
+  exists(keyPath: string): boolean;
 
-  public get(keyPath: string) {
+  /**
+   * Listens to changes to the given keyPath. keyPath can be any the entire path or ancestors. By listening to an ancestor, one will receive one change event even if two children change.
+   */
+  subscribe(keyPath: string, listener: ChangeListener): void;
+
+  /**
+   * Creates a branch.
+   * @param prefixKeyPath relative keypath from current Key Path
+   */
+  branch(prefixKeyPath: string): C5Store;
+
+  /**
+   * @return null if root, prefixKey if branch
+   */
+  readonly currentKeyPath: string;
+
+  /**
+   * Searches for all keypaths that relative to currentKeyPath + given keyPath 
+   * @return A list of Key Paths
+   */
+  keyPathsWithPrefix(keyPath: string): string[];
+}
+
+export class C5StoreRoot implements C5Store {
+
+  constructor(
+    private _getFn: GetDataFn,
+    private _existsFn: KeyExistsFn,
+    private _prefixKeysFn: PrefixKeysFn,
+    private _subscriptions: C5StoreSubscriptions
+  ) {}
+
+  public get<Type>(keyPath: string): Type {
 
     return this._getFn(keyPath);
   }
@@ -53,6 +88,65 @@ export class C5Store {
   public subscribe(keyPath: string, listener: ChangeListener) {
 
     this._subscriptions.add(keyPath, listener);
+  }
+
+  public exists(keyPath: string): boolean {
+    
+    return this._existsFn(keyPath);
+  }
+
+  public branch(prefixKeyPath: string): C5Store {
+    return new C5StoreBranch(this, prefixKeyPath);
+  }
+
+  public get currentKeyPath(): string {
+    return null;
+  }
+
+  public keyPathsWithPrefix(keyPath: string): string[] {
+    
+    return this._prefixKeysFn(keyPath);
+  }
+}
+
+export class C5StoreBranch implements C5Store {
+
+  constructor(
+    private _root: C5StoreRoot,
+    private _keyPath: string
+  ) {}
+
+  public get<Type>(keyPath: string): Type {
+    
+    return this._root.get(this._mergeKeyPath(keyPath));
+  }
+
+  public exists(keyPath: string): boolean {
+    return this._root.exists(this._mergeKeyPath(keyPath));
+  }
+
+  public subscribe(keyPath: string, listener: ChangeListener): void {
+    
+    this._root.subscribe(this._mergeKeyPath(keyPath), listener);
+  }
+
+  public branch(prefixKeyPath: string): C5Store {
+    
+    return this._root.branch(this._mergeKeyPath(prefixKeyPath));
+  }
+
+  public get currentKeyPath(): string {
+    return this._keyPath;
+  }
+
+  public keyPathsWithPrefix(keyPath: string): string[] {
+    
+    return this._root.keyPathsWithPrefix(this._mergeKeyPath(keyPath));
+  }
+
+  private _mergeKeyPath(keyPath: string): string {
+
+    return `${this._keyPath}.${keyPath}`;
   }
 }
 
@@ -73,6 +167,9 @@ export class C5StoreMgr {
 
   }
 
+  /**
+   * Registers the value provider, immediately fetches all values it will provide and schedules periodic refreshes. refreshPeriodSec if 0 will not perform any scheduling.
+   */
   public async setVProvider(
     name: string,
     vProvider: C5ValueProvider,
@@ -111,6 +208,9 @@ export class C5StoreMgr {
     }
   }
 
+  /**
+   * Stops all of the scheduled refreshes.
+   */
   stop() {
 
     this._logger.info("Stopping C5StoreMgr");
@@ -123,11 +223,41 @@ export class C5StoreMgr {
   }
 }
 
-export async function createC5Store(configFilePaths: Array<string>, logger: Logger, stats: StatsRecorder): Promise<[C5Store, C5StoreMgr]> {
+/**
+ * Creates a 2-tuple containing C5Store and C5Store manager.
+ */
+export async function createC5Store(
+  configFilePaths: Array<string>,
+  logger?: Logger,
+  stats?: StatsRecorder
+): Promise<[C5Store, C5StoreMgr]> {
+
+  if(!logger) {
+
+    logger = {
+      "debug": console.log,
+      "info": console.log,
+      "warn": console.log,
+      "error": console.log,
+    };
+  }
+
+  if(!stats) {
+    stats = {
+      "recordCounterIncrement": () => {},
+      "recordGauge": () => {},
+      "recordTimer": () => {},
+    };
+  }
 
   let changeSubscriptions = new C5StoreSubscriptions();
   let internalStore = new C5DataStore();
-  let c5Store = new C5Store(internalStore.getData.bind(internalStore), changeSubscriptions);
+  let c5Store = new C5StoreRoot(
+    internalStore.getData.bind(internalStore),
+    internalStore.exists.bind(internalStore),
+    internalStore.keysWithPrefix.bind(internalStore),
+    changeSubscriptions
+  );
 
   let changeDelayPeriod = 1 * 1000;
   let changeTimer = null;
@@ -230,6 +360,9 @@ export async function createC5Store(configFilePaths: Array<string>, logger: Logg
   return [c5Store, c5StoreMgr];
 }
 
+/**
+ * Returns array of yaml file paths that are prefixed with config dir with file names constructed using the rest of the args
+ */
 export function defaultConfigFiles(configDir: string, releaseEnv: string, env:string, datacenter: string): Array<string> {
 
   return [

@@ -37,6 +37,25 @@ async function main() {
   logger.info(`example.junk ${util.inspect(c5Store.get("example.junk"))}`);
   logger.info(`example.secret ${util.inspect(c5Store.get("example.secret"))}`);
   logger.info(`list_of_items ${util.inspect(c5Store.get("list_of_items"))}`);
+
+  let exampleTestConfig = c5Store.branch("example.test");
+  logger.info(`Direct branch: example.test.my ${util.inspect(exampleTestConfig.get("my"))}`);
+
+  let exampleTestMy = c5Store.branch("example").branch("test").get("my");
+
+  if(!exampleTestConfig.exists("my")) {
+    throw new Error("example.test.my must exist")
+  }
+
+  if(exampleTestConfig.get("my") !== exampleTestMy) {
+    throw new Error("example.test.my from direct branch and two branch must be equal");
+  }
+
+  logger.info(`Two branch: example.test.my ${util.inspect(exampleTestMy)}`);
+
+  let keyPrefixes = c5Store.keyPathsWithPrefix("example");
+  logger.info(`example key prefixes ${util.inspect(keyPrefixes)}`);
+
   
   c5StoreMgr.stop();
 }
