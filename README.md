@@ -4,9 +4,9 @@ Stands for ConfigStore. This library provides a unified store for configuration 
 
 # Background
 
-Reading a "map" from a yaml file is great, but how does an application read from outside datasources? How does it respond to value changes? Keep writing custom handlers or use a framework to do this? Passing these maps of maps (tree) around is riddled with mistakes. Where are you in the tree? Just never made sense to me every time I started on a new project at home or work.
+Reading a "map" from a yaml file is great, but how does an application read from outside datasources? How does it respond to value changes? Keep writing custom handlers or use a framework to do this? Passing the tree (map) or branches (maps of maps, submaps) around is riddled with mistakes. Where are you in the tree? Just never made sense to me every time I started on a new project at home or work.
 
-What if could embed my pet peeves into a library. One where I could pass around a store where I could do the things I was doing with a map get data,check if the key exists and pass around sub maps? Bonus would be that I could subscribe to changes and reconfigure the application without intrusive restarts. C5Store is what I call it. Now I can just pick this library and not ask what to use, where or how to use a configuration store.
+What if could embed my pet peeves into a library. One where I could pass around a store where I could do the things I was doing with a map get data, check if the key exists and pass around sub maps? Bonus would be that I could subscribe to changes and reconfigure the application without intrusive restarts. C5Store is what I call it. Now I can just pick this library and not ask what to use, where or how to use a configuration store.
 
 # Concept
 
