@@ -1,4 +1,6 @@
 plugins {
+    id 'maven-publish'
+    id 'signing'
     id 'java'
     id 'se.patrikerdes.use-latest-versions' version '0.2.5'
     id 'com.github.ben-manes.versions' version '0.20.0'
@@ -31,6 +33,7 @@ allprojects {
 
 subprojects {
 
+    apply plugin: "maven-publish"
     apply plugin: 'java-library'
     apply plugin: 'maven'
     apply plugin: 'jacoco'
@@ -157,14 +160,14 @@ subprojects {
 
     task sourcesJar(type: Jar, dependsOn: classes) {
 
-        classifier = 'sources'
+        archiveClassifier = 'sources'
         from sourceSets.main.java.srcDirs
     }
 
     task javadocJar(type: Jar, dependsOn: javadoc) {
 
         from javadoc.destinationDir
-        classifier = 'javadoc'
+        archiveClassifier = 'javadoc'
     }
 
     artifacts {
@@ -175,7 +178,59 @@ subprojects {
     repositories {
         mavenLocal()
         mavenCentral()
+        jcenter()
     }
+
+    publishing {
+        publications {
+
+            mavenJava(MavenPublication) {
+
+                from components.java
+                artifact tasks.sourcesJar
+                artifact tasks.javadocJar
+
+                pom {
+                    name = project.name
+                    description = project.description
+                    licenses {
+                        license {
+                            name = 'Mozilla Public License Version 2.0'
+                            url = 'https://www.mozilla.org/en-US/MPL/2.0/'
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = 'normano'
+                            name = 'Norman Ovenseri'
+                            email = 'novenseri@gmail.com'
+                        }
+                    }
+                    scm {
+                        url = 'https://github.com/normano/c5store'
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+
+                name "ossrhRepo"
+
+                def snapshotUrl = "https://oss.sonatype.org/content/repositories/snapshots"
+                def releaseUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2"
+                url version.endsWith("-SNAPSHOT") ? snapshotUrl : releaseUrl
+
+                credentials {
+
+                    username ossrhUser
+                    password ossrhPassword
+                }
+            }
+        }
+    }
+    tasks.publish.enabled = false
 
     dependencies {
         implementation group: 'org.slf4j', name: 'slf4j-api', version: slf4jVersion
@@ -206,4 +261,8 @@ subprojects {
         testRuntimeOnly group: 'org.junit.jupiter', name:'junit-jupiter-engine', version: junitVersion
         testImplementation group: 'org.mockito', name: 'mockito-core', version: '2.23.0'
     }
+}
+
+signing {
+    sign publishing.publications
 }
