@@ -90,6 +90,10 @@ public final class C5StoreUtils {
    */
   static void deepMerge(Map original, Map newMap) {
 
+    if (original == null || newMap == null) {
+      return;
+    }
+
     for (var entry : (Set<Map.Entry>) newMap.entrySet()) {
 
       var key = entry.getKey();
