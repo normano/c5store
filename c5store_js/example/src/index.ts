@@ -23,7 +23,11 @@ async function main() {
     recordTimer: () => {},
   };
 
-  let [c5Store, c5StoreMgr] = await createC5Store(configFilePaths, logger, statsRecorder);
+  let [c5Store, c5StoreMgr] = await createC5Store(configFilePaths, {
+    logger,
+    "stats": statsRecorder,
+    "changeDelayPeriod": 100,
+  });
 
   logger.info("Subscribed to bill, so associated keys should print out every so often assuming stop is not called.");
   c5Store.subscribe("bill", console.log);
@@ -56,11 +60,23 @@ async function main() {
   let keyPrefixes = c5Store.keyPathsWithPrefix("example");
   logger.info(`example key prefixes ${util.inspect(keyPrefixes)}`);
 
+  await new Promise((resolve, reject) => {
+    
+    let successTimeout = setTimeout(resolve, 500);
+
+    c5Store.subscribe("example.junk", (notifyKeyPath, keyPath, value) => {
+      console.log(`Notify Key ${notifyKeyPath}, keyPath: ${keyPath} was sent change notification.`);
+      reject("FAILURE: Update should not occur since nothing has changed.");
+      clearTimeout(successTimeout);
+    });
+  });
+
+  console.log("Example program successfully ran");
   
   c5StoreMgr.stop();
 }
 
 main().then(() => {
 
-  console.log("Finished main func");
+  console.log("Finished main func.");
 });

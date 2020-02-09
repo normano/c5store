@@ -1,4 +1,5 @@
 import {ArrayMultimap, SetMultimap} from "@teppeis/multimaps";
+import dequal from "dequal";
 import fs from "fs-extra";
 import yaml from "js-yaml";
 import _merge from "lodash.merge";
@@ -9,6 +10,7 @@ import {C5DataStore, GetDataFn, SetDataFn, HydrateContext, KeyExistsFn, PrefixKe
 import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers";
 import { StatsRecorder, Logger } from "./telemetry";
 
+const DEFAULT_CHANGE_DELAY_INTERVAL = 500;
 type ChangeListener = (notifyKeyPath: string, keyPath: string, value: any) => void;
 
 class C5StoreSubscriptions {
@@ -65,7 +67,7 @@ export interface C5Store {
   readonly currentKeyPath: string;
 
   /**
-   * Searches for all keypaths that relative to currentKeyPath + given keyPath 
+   * Searches for all keypaths that relative to currentKeyPath + given keyPath
    * @return A list of Key Paths
    */
   keyPathsWithPrefix(keyPath: string): string[];
@@ -91,7 +93,7 @@ export class C5StoreRoot implements C5Store {
   }
 
   public exists(keyPath: string): boolean {
-    
+
     return this._existsFn(keyPath);
   }
 
@@ -104,7 +106,7 @@ export class C5StoreRoot implements C5Store {
   }
 
   public keyPathsWithPrefix(keyPath: string): string[] {
-    
+
     return this._prefixKeysFn(keyPath);
   }
 }
@@ -117,7 +119,7 @@ export class C5StoreBranch implements C5Store {
   ) {}
 
   public get<Type>(keyPath: string): Type {
-    
+
     return this._root.get(this._mergeKeyPath(keyPath));
   }
 
@@ -126,12 +128,12 @@ export class C5StoreBranch implements C5Store {
   }
 
   public subscribe(keyPath: string, listener: ChangeListener): void {
-    
+
     this._root.subscribe(this._mergeKeyPath(keyPath), listener);
   }
 
   public branch(prefixKeyPath: string): C5Store {
-    
+
     return this._root.branch(this._mergeKeyPath(prefixKeyPath));
   }
 
@@ -140,7 +142,7 @@ export class C5StoreBranch implements C5Store {
   }
 
   public keyPathsWithPrefix(keyPath: string): string[] {
-    
+
     return this._root.keyPathsWithPrefix(this._mergeKeyPath(keyPath));
   }
 
@@ -228,11 +230,19 @@ export class C5StoreMgr {
  */
 export async function createC5Store(
   configFilePaths: Array<string>,
-  logger?: Logger,
-  stats?: StatsRecorder
+  options?: {
+    logger?: Logger,
+    stats?: StatsRecorder,
+    changeDelayPeriod?: number,
+  }
 ): Promise<[C5Store, C5StoreMgr]> {
 
-  if(!logger) {
+  if(!options) {
+    options = {};
+  }
+
+  let logger = null;
+  if(!options.logger) {
 
     logger = {
       "debug": console.log,
@@ -240,26 +250,34 @@ export async function createC5Store(
       "warn": console.log,
       "error": console.log,
     };
+  } else {
+    logger = options.logger;
   }
 
-  if(!stats) {
+  let stats = null;
+  if(!options.stats) {
     stats = {
       "recordCounterIncrement": () => {},
       "recordGauge": () => {},
       "recordTimer": () => {},
     };
+  } else {
+    stats = options.stats;
   }
 
-  let changeSubscriptions = new C5StoreSubscriptions();
-  let internalStore = new C5DataStore();
-  let c5Store = new C5StoreRoot(
+  const changeSubscriptions = new C5StoreSubscriptions();
+  const internalStore = new C5DataStore();
+  const c5Store = new C5StoreRoot(
     internalStore.getData.bind(internalStore),
     internalStore.exists.bind(internalStore),
     internalStore.keysWithPrefix.bind(internalStore),
     changeSubscriptions
   );
 
-  let changeDelayPeriod = 1 * 1000;
+  let changeDelayPeriod = DEFAULT_CHANGE_DELAY_INTERVAL;
+  if(options.changeDelayPeriod > -1) {
+    changeDelayPeriod = options.changeDelayPeriod;
+  }
   let changeTimer = null;
   let changedKeyPaths = new Set<string>();
 
@@ -325,12 +343,27 @@ export async function createC5Store(
     }, changeDelayPeriod);
   };
 
-  let setData = (key, value) => {
+  const setData = (key, value) => {
 
-    // Changes are immediately visible, but not sure if it is the best idea. Maybe should
-    // wait until change notfications are resolved to be sent out.
-    internalStore.setData(key, value);
-    changeNotify(key);
+    //TODO Changes are immediately visible, but not sure if it is the best idea. Maybe should
+    // wait until change notfications are resolved to be sent out first.
+
+    // Do not send notification if it doesn't already exist
+    const alreadyExists = internalStore.exists(key);
+    if(!alreadyExists) {
+
+      internalStore.setData(key, value);
+
+    } else {
+
+      // Do not do anything if value is equal
+      const oldValue = internalStore.getData(key);
+
+      if(!dequal(oldValue, value)) {
+        internalStore.setData(key, value);
+        changeNotify(key);
+      }
+    }
   };
 
   let rawConfigData = {};
