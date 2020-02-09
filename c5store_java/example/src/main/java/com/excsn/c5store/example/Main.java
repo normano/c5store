@@ -11,7 +11,7 @@ import java.time.Duration;
 import java.util.Map;
 
 public class Main {
-  public static void main(String[] args) {
+  public static void main(String[] args) throws InterruptedException {
 
     var logger = new Logger() {
       @Override
@@ -62,13 +62,13 @@ public class Main {
     var region = "localdc";
 
     var configFilePaths = C5StoreUtils.defaultConfigFilePaths(configDir.toString(), releaseEnv, appEnv, region);
-    var c5StoreHolder = C5StoreBuilder.builder().setTelemetry(logger, statsRecorder)
+    var c5StoreHolder = C5StoreBuilder.builder().setChangeDelayPeriod(100).setTelemetry(logger, statsRecorder)
       .setConfigFilePaths(configFilePaths).build();
 
     var secretsDir = Paths.get("example", "src", "main", "resources", "config", "secrets").toAbsolutePath();
     var secretsProvider = C5FileValueProvider.createDefault(secretsDir.toString());
 
-    c5StoreHolder.configMgr.setVProvider("secrets", secretsProvider, Duration.ofSeconds(60));
+    c5StoreHolder.configMgr.setVProvider("secrets", secretsProvider, Duration.ofSeconds(3));
 
     var whatToday = c5StoreHolder.config.get("what.today");
     System.out.println("Output of keypath 'what.today': " + whatToday);
@@ -79,6 +79,25 @@ public class Main {
     var secretStore = c5StoreHolder.config.get("secret.store");
     System.out.println("Output of keypath 'secret.store': " + secretStore);
 
+    var aThread = new Thread(() -> {
+
+      c5StoreHolder.config.subscribe("secret.store", (notifyKeyPath, keyPath, value) -> {
+
+        System.err.println("Notify Key" + notifyKeyPath + ", keyPath: " + keyPath + " was sent change notification.");
+        System.exit(1);
+        throw new RuntimeException("FAILURE: Update should not occur since nothing has changed.");
+      });
+
+      try {
+        Thread.sleep(500);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    });
+
+    aThread.run();
+
+    System.out.println("Example program ran successfully");
     c5StoreHolder.stopFn.run();
   }
 }

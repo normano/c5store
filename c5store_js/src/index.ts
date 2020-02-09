@@ -10,7 +10,7 @@ import {C5DataStore, GetDataFn, SetDataFn, HydrateContext, KeyExistsFn, PrefixKe
 import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers";
 import { StatsRecorder, Logger } from "./telemetry";
 
-const DEFAULT_CHANGE_DELAY_INTERVAL = 500;
+const DEFAULT_CHANGE_DELAY_PERIOD = 500;
 type ChangeListener = (notifyKeyPath: string, keyPath: string, value: any) => void;
 
 class C5StoreSubscriptions {
@@ -274,7 +274,7 @@ export async function createC5Store(
     changeSubscriptions
   );
 
-  let changeDelayPeriod = DEFAULT_CHANGE_DELAY_INTERVAL;
+  let changeDelayPeriod = DEFAULT_CHANGE_DELAY_PERIOD;
   if(options.changeDelayPeriod > -1) {
     changeDelayPeriod = options.changeDelayPeriod;
   }

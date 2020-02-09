@@ -8,17 +8,18 @@ import java.util.concurrent.TimeUnit;
 
 class ChangeNotifier {
 
-  private int _changeDelayPeriod = 1 * 1000;
+  private int _changeDelayPeriod;
   private Debouncer _debouncer;
   private Set<String> _changeKeyPaths;
   private C5DataStore _c5DataStore;
   private C5StoreSubscriptions _subscriptions;
 
-  ChangeNotifier(C5DataStore c5DataStore, C5StoreSubscriptions subscriptions) {
+  ChangeNotifier(C5DataStore c5DataStore, C5StoreSubscriptions subscriptions, int changeDelayPeriod) {
     _debouncer = new Debouncer();
     _changeKeyPaths = new HashSet<>();
     _c5DataStore = c5DataStore;
     _subscriptions = subscriptions;
+    _changeDelayPeriod = changeDelayPeriod;
   }
 
   void changeNotify(String key) {
