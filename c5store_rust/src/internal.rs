@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::collections::{Bound, HashSet};
+use std::collections::Bound;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use multimap::MultiMap;
@@ -8,7 +9,6 @@ use skiplist::SkipMap;
 
 use crate::ChangeListener;
 use crate::value::C5DataValue;
-use std::hash::Hash;
 
 pub struct C5StoreDataValueRef<'a> {
   pub (in self) _lock: RwLockReadGuard<'a, SkipMap<NaturalOrderedString, C5DataValue>>,

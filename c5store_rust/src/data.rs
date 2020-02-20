@@ -1,13 +1,11 @@
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
-use std::collections::hash_map::{Keys, IntoIter, RandomState};
-use std::fmt::{self, Debug};
-use std::iter::{Iterator, IntoIterator, FromIterator};
-use std::hash::{Hash, BuildHasher};
-use std::ops::Index;
-
+use std::collections::hash_map::{IntoIter, Keys, RandomState};
 use std::collections::hash_map::Iter;
 use std::collections::hash_map::IterMut;
+use std::fmt::{self, Debug};
+use std::hash::{BuildHasher, Hash};
+use std::iter::{FromIterator, IntoIterator, Iterator};
 
 #[macro_export]
 ///
@@ -16,11 +14,11 @@ use std::collections::hash_map::IterMut;
 macro_rules! hashsetmultimap {
     ($($key:expr => $value:expr),*)=>{
         {
-            let mut map = HashsetMultiMap::new();
+            let mut _map = HashsetMultiMap::new();
             $(
                 map.insert($key,$value);
              )*
-            map
+            _map
         }
     }
 }

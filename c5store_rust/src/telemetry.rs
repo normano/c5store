@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
+use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use num_rational::{Rational32, Rational64, BigRational};
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
+use num_rational::{BigRational, Rational32, Rational64};
 
 pub trait Logger: Send + Sync {
 
@@ -45,11 +45,11 @@ pub trait StatsRecorder: Send + Sync {
 pub struct StatsRecorderStub {}
 
 impl StatsRecorder for StatsRecorderStub {
-  fn record_counter_increment(&self, tags: HashMap<Box<str>, Box<str>, RandomState>, name: Box<str>) {}
+  fn record_counter_increment(&self, _tags: HashMap<Box<str>, Box<str>, RandomState>, _name: Box<str>) {}
 
-  fn record_timer(&self, tags: HashMap<Box<str>, Box<str>, RandomState>, name: Box<str>, value: Duration) {}
+  fn record_timer(&self, _tags: HashMap<Box<str>, Box<str>, RandomState>, _name: Box<str>, _value: Duration) {}
 
-  fn record_gauge(&self, tags: HashMap<Box<str>, Box<str>, RandomState>, name: Box<str>, value: GaugeValue) {}
+  fn record_gauge(&self, _tags: HashMap<Box<str>, Box<str>, RandomState>, _name: Box<str>, _value: GaugeValue) {}
 }
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]

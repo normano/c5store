@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum C5DataValue {
@@ -16,7 +16,7 @@ pub enum C5DataValue {
 }
 
 impl From<()> for C5DataValue {
-  fn from(value: ()) -> Self {
+  fn from(_value: ()) -> Self {
     return C5DataValue::Null;
   }
 }

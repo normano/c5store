@@ -139,7 +139,8 @@ impl C5ValueProvider for C5FileValueProvider {
     match data {
       C5DataValue::Map(map) => {
         let value_schema_result = C5ValueProviderSchema::from_map(&map);
-        //TODO: needs logging
+        //TODO: above result needs to be logged if it is an error
+
         let value_schema = value_schema_result.unwrap();
         let path: Box<str>;
         let encoding: Box<str>;

@@ -1,19 +1,20 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use crate::value::C5DataValue;
-use crate::internal::{C5DataStore, C5StoreSubscriptions, C5StoreDataValueRef};
-use crate::telemetry::{Logger, StatsRecorder, StatsRecorderStub, ConsoleLogger};
+use std::path::PathBuf;
 use std::sync::Arc;
-use crate::providers::{C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH};
-use multimap::MultiMap;
-use scheduled_thread_pool::{ScheduledThreadPool, JobHandle};
-use std::path::{Path, PathBuf};
-use parking_lot::{RwLock, Mutex};
-use std::cell::{RefCell, Ref};
 use std::time::Duration;
-use crate::data::HashsetMultiMap;
-use std::fs::File;
+
+use multimap::MultiMap;
+use parking_lot::Mutex;
+use scheduled_thread_pool::{JobHandle, ScheduledThreadPool};
 use serde_yaml::Value;
+
+use crate::data::HashsetMultiMap;
+use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
+use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
 use crate::serialization::serde_yaml_val_to_c5_value;
+use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
+use crate::value::C5DataValue;
 
 mod data;
 mod internal;
@@ -81,7 +82,7 @@ impl ChangeNotifier {
 
         let mut deduped_saved_changed_keypath_map: HashsetMultiMap<Box<str>, Box<str>> = hashsetmultimap!();
 
-        let mut saved_changed_keypaths_lock = saved_changed_keypaths.lock();
+        let saved_changed_keypaths_lock = saved_changed_keypaths.lock();
         let saved_changed_keypaths = saved_changed_keypaths_lock.borrow();
         for saved_changed_keypath in saved_changed_keypaths.iter() {
 
@@ -321,7 +322,7 @@ impl C5StoreMgr {
 
     if provided_data_option.is_none() {
 
-      //TODO Log this
+      self._logger.warn(format!("{} value provider has no data to provide. Either remove this value provider or add configuration it must provide.", name).as_str());
       return;
     }
 
@@ -513,7 +514,7 @@ fn _take_provided_data_helper(
 
   for key in keys {
     let mut value = raw_config_data.get_mut(&key).unwrap();
-    let mut new_keypath: String;
+    let new_keypath: String;
 
     if keypath.is_empty() {
       new_keypath = key.clone();
@@ -564,8 +565,8 @@ fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataV
 
     if dest.contains_key(src_key.as_str()) {
 
-      let mut dest_value_option = dest.get_mut(src_key.as_str());
-      let mut dest_value = dest_value_option.unwrap();
+      let dest_value_option = dest.get_mut(src_key.as_str());
+      let dest_value = dest_value_option.unwrap();
 
       if let C5DataValue::Map(ref mut dest_map) = dest_value {
 
@@ -601,14 +602,14 @@ pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, regi
 
 #[cfg(test)]
 mod tests {
-  use crate::C5Store;
   use crate::{create_c5store, default_config_paths};
+  use crate::C5Store;
   use crate::value::C5DataValue;
 
   #[test]
   fn test_config_contains_bill_bar() {
     let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
-    let (c5store, c5store_mgr) = create_c5store(config_file_paths, None);
+    let (c5store, _c5store_mgr) = create_c5store(config_file_paths, None);
 
     assert_eq!(c5store.get("bill.barr").unwrap(), C5DataValue::String(String::from("AG")));
   }
