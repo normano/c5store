@@ -298,49 +298,50 @@ export async function createC5Store(
     // Can use a timer of maybe 2 seconds and reset it everytime a change notify comes in until
     // the 2 seconds is elapsed then perform change notifications.
 
-    clearChangeTimer();
-
     changedKeyPaths.add(key);
 
-    changeTimer = setTimeout(() => {
+    if(changeTimer == null) {
+      changeTimer = setTimeout(() => {
 
-      let savedChangedKeyPaths = changedKeyPaths;
-      changedKeyPaths = new Set();
-      changeTimer = null;
+        clearChangeTimer();
 
-      let dedupedSavedChangedKeyPathsMap = new SetMultimap<string, string>();
+        let savedChangedKeyPaths = changedKeyPaths;
+        changedKeyPaths = new Set();
+        changeTimer = null;
 
-      for (let savedChangedKeyPath of savedChangedKeyPaths) {
+        let dedupedSavedChangedKeyPathsMap = new SetMultimap<string, string>();
 
-        dedupedSavedChangedKeyPathsMap.put(savedChangedKeyPath, savedChangedKeyPath);
+        for (let savedChangedKeyPath of savedChangedKeyPaths) {
 
-        let splitSavedChangedKeyPath = savedChangedKeyPath.split(".");
-        let keyAncestorPath = "";
+          dedupedSavedChangedKeyPathsMap.put(savedChangedKeyPath, savedChangedKeyPath);
 
-        for(let savedChangedKeyPathPart of splitSavedChangedKeyPath) {
+          let splitSavedChangedKeyPath = savedChangedKeyPath.split(".");
+          let keyAncestorPath = "";
 
-          if (keyAncestorPath != "") {
-            keyAncestorPath += ".";
+          for(let savedChangedKeyPathPart of splitSavedChangedKeyPath) {
+
+            if (keyAncestorPath != "") {
+              keyAncestorPath += ".";
+            }
+
+            keyAncestorPath += savedChangedKeyPathPart;
+
+            dedupedSavedChangedKeyPathsMap.put(savedChangedKeyPath, keyAncestorPath);
           }
-
-          keyAncestorPath += savedChangedKeyPathPart;
-
-          dedupedSavedChangedKeyPathsMap.put(savedChangedKeyPath, keyAncestorPath);
         }
-      }
 
-      for(let savedChangedKeyPath of dedupedSavedChangedKeyPathsMap.keys()) {
+        for(let savedChangedKeyPath of dedupedSavedChangedKeyPathsMap.keys()) {
 
-        let dedupedSavedChangedKeyPaths = dedupedSavedChangedKeyPathsMap.get(savedChangedKeyPath);
+          let dedupedSavedChangedKeyPaths = dedupedSavedChangedKeyPathsMap.get(savedChangedKeyPath);
 
-        let value = internalStore.getData(savedChangedKeyPath);
-        for(let dedupedSavedChangedKeyPath of dedupedSavedChangedKeyPaths) {
+          let value = internalStore.getData(savedChangedKeyPath);
+          for(let dedupedSavedChangedKeyPath of dedupedSavedChangedKeyPaths) {
 
-          changeSubscriptions.notifyValueChange(dedupedSavedChangedKeyPath, savedChangedKeyPath, value);
+            changeSubscriptions.notifyValueChange(dedupedSavedChangedKeyPath, savedChangedKeyPath, value);
+          }
         }
-      }
-
-    }, changeDelayPeriod);
+      }, changeDelayPeriod);
+    }
   };
 
   const setData = (key, value) => {
@@ -396,14 +397,14 @@ export async function createC5Store(
 /**
  * Returns array of yaml file paths that are prefixed with config dir with file names constructed using the rest of the args
  */
-export function defaultConfigFiles(configDir: string, releaseEnv: string, env:string, datacenter: string): Array<string> {
+export function defaultConfigFiles(configDir: string, releaseEnv: string, env:string, region: string): Array<string> {
 
   return [
     "common.yaml",
     `${releaseEnv}.yaml`,
     `${env}.yaml`,
-    `${datacenter}.yaml`,
-    `${env}-${datacenter}.yaml`,
+    `${region}.yaml`,
+    `${env}-${region}.yaml`,
   ].map((configFilePath) => path.resolve(configDir, configFilePath));
 }
 
