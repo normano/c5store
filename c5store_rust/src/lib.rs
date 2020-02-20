@@ -21,7 +21,7 @@ mod internal;
 pub mod providers;
 pub mod serialization;
 pub mod telemetry;
-mod value;
+pub mod value;
 
 const DEFAULT_CHANGE_DELAY_PERIOD: u64 = 500;
 
