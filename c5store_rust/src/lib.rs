@@ -490,7 +490,6 @@ pub fn read_config_data(
   _take_provided_data(&mut raw_config_data, &mut config_data, provided_data);
 
   for (key, value) in config_data {
-    println!("{:?}", key);
     set_data_fn(key.as_str(), value);
   }
 }
