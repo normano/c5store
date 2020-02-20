@@ -132,7 +132,7 @@ impl ChangeNotifier {
   }
 }
 
-pub trait C5Store: Clone {
+pub trait C5Store {
   fn get(&self, key_path: &str) -> Option<C5DataValue>;
 
   fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef>;

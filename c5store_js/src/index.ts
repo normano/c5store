@@ -417,7 +417,12 @@ async function extractProvidedAndConfigData(rawConfigData: object): Promise<[obj
   return [configData, providedData];
 }
 
-function traverseConfig(rawConfigData: object, configData: any, providedData: ArrayMultimap<string, any>, keyPath: string) {
+function traverseConfig(
+  rawConfigData: object,
+  configData: any,
+  providedData: ArrayMultimap<string, any>,
+  keyPath: string
+) {
 
   let keys = Object.keys(rawConfigData);
   for(let key of keys) {
