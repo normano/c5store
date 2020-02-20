@@ -81,6 +81,18 @@ impl From<Box<str>> for C5DataValue {
   }
 }
 
+impl TryInto<Box<str>> for C5DataValue {
+  type Error = ();
+
+  fn try_into(self) -> Result<Box<str>, Self::Error> {
+
+    return match self {
+      C5DataValue::String(inner_value) => Result::Ok(inner_value.into_boxed_str()),
+      _ => Result::Err(()),
+    };
+  }
+}
+
 impl From<Vec<C5DataValue>> for C5DataValue {
   fn from(value: Vec<C5DataValue>) -> Self {
     return C5DataValue::Array(value);
@@ -94,6 +106,30 @@ impl TryInto<Vec<C5DataValue>> for C5DataValue {
 
     return match self {
       C5DataValue::Array(inner_value) => Result::Ok(inner_value),
+      _ => Result::Err(()),
+    };
+  }
+}
+
+impl TryInto<Vec<String>> for C5DataValue {
+  type Error = ();
+
+  fn try_into(self) -> Result<Vec<String>, Self::Error> {
+
+    return match self {
+      C5DataValue::Array(inner_value) => Result::Ok(inner_value.into_iter().map(|vec_item| vec_item.try_into().unwrap()).collect()),
+      _ => Result::Err(()),
+    };
+  }
+}
+
+impl TryInto<Vec<Box<str>>> for C5DataValue {
+  type Error = ();
+
+  fn try_into(self) -> Result<Vec<Box<str>>, Self::Error> {
+
+    return match self {
+      C5DataValue::Array(inner_value) => Result::Ok(inner_value.into_iter().map(|vec_item| vec_item.try_into().unwrap()).collect()),
       _ => Result::Err(()),
     };
   }
