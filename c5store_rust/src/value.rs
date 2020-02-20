@@ -3,7 +3,7 @@ use std::convert::TryInto;
 
 use serde::{Serialize, Deserialize};
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum C5DataValue {
   Null,
   Bytes(Vec<u8>),

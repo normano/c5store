@@ -1,0 +1,6 @@
+example:
+  foo: bar
+  test:
+    my: app
+    and: 1
+  

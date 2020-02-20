@@ -469,6 +469,7 @@ pub fn read_config_data(
 ) {
 
   let mut raw_config_data: HashMap<String, C5DataValue> = HashMap::new();
+  let mut config_data: HashMap<String, C5DataValue> = HashMap::new();
 
   for config_file_path in config_file_paths.iter() {
     let config_file_reader_result = std::fs::File::open(config_file_path);
@@ -485,23 +486,26 @@ pub fn read_config_data(
     }
   }
 
-  _take_provided_data(&mut raw_config_data, provided_data);
+  _take_provided_data(&mut raw_config_data, &mut config_data, provided_data);
 
-  for (key, value) in raw_config_data {
+  for (key, value) in config_data {
+    println!("{:?}", key);
     set_data_fn(key.as_str(), value);
   }
 }
 
 fn _take_provided_data(
   raw_config_data: &mut HashMap<String, C5DataValue>,
+  config_data: &mut HashMap<String, C5DataValue>,
   provided_data: &mut MultiMap<Box<str>, C5DataValue>,
 ) {
 
-  _take_provided_data_helper(raw_config_data, provided_data, String::new());
+  _take_provided_data_helper(raw_config_data, config_data, provided_data, String::new());
 }
 
 fn _take_provided_data_helper(
   raw_config_data: &mut HashMap<String, C5DataValue>,
+  config_data: &mut HashMap<String, C5DataValue>,
   provided_data: &mut MultiMap<Box<str>, C5DataValue>,
   keypath: String,
 ) {
@@ -514,12 +518,12 @@ fn _take_provided_data_helper(
     if keypath.is_empty() {
       new_keypath = key.clone();
     } else {
-      new_keypath = keypath.clone() + &key;
+      new_keypath = keypath.clone() + "." + &key;
     }
 
     if let C5DataValue::Map(ref mut data_map) = &mut value {
       if !data_map.contains_key(CONFIG_KEY_PROVIDER) {
-        _take_provided_data_helper(data_map, provided_data, new_keypath);
+        _take_provided_data_helper(data_map, config_data, provided_data, new_keypath);
 
         if data_map.len() == 0 {
           raw_config_data.remove(&key);
@@ -537,6 +541,8 @@ fn _take_provided_data_helper(
 
         raw_config_data.remove(&key);
       }
+    } else {
+      config_data.insert(new_keypath.clone(), value.clone());
     }
   }
 }
@@ -595,8 +601,15 @@ pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, regi
 
 #[cfg(test)]
 mod tests {
+  use crate::C5Store;
+  use crate::{create_c5store, default_config_paths};
+  use crate::value::C5DataValue;
+
   #[test]
-  fn it_works() {
-    assert_eq!(2 + 2, 4);
+  fn test_config_contains_bill_bar() {
+    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
+    let (c5store, c5store_mgr) = create_c5store(config_file_paths, None);
+
+    assert_eq!(c5store.get("bill.barr").unwrap(), C5DataValue::String(String::from("AG")));
   }
 }

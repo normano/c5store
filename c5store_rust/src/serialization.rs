@@ -64,12 +64,17 @@ pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
     },
     serde_yaml::Value::Sequence(value) => C5DataValue::Array(value.into_iter().map(|item| serde_yaml_val_to_c5_value(item)).collect()),
     serde_yaml::Value::Mapping(value) => {
-      let map_result: Result<HashMap<String, C5DataValue>, serde_yaml::Error> = serde_yaml::from_value(raw_value);
+      let map_result: Result<HashMap<String, serde_yaml::Value>, serde_yaml::Error> = serde_yaml::from_value(raw_value);
 
       if map_result.is_err() {
         C5DataValue::Null
       } else {
-        C5DataValue::Map(map_result.unwrap())
+        let mut new_map = HashMap::new();
+        for (key, value) in map_result.unwrap() {
+          new_map.insert(key, serde_yaml_val_to_c5_value(value));
+        }
+
+        C5DataValue::Map(new_map)
       }
     },
   };
@@ -90,12 +95,18 @@ pub fn serde_json_val_to_c5_value(raw_value: serde_json::Value) -> C5DataValue {
     },
     serde_json::Value::Array(value) => C5DataValue::Array(value.into_iter().map(serde_json_val_to_c5_value).collect()),
     serde_json::Value::Object(value) => {
-      let map_result: Result<HashMap<String, C5DataValue>, serde_json::Error> = serde_json::from_value(raw_value);
+
+      let map_result: Result<HashMap<String, serde_json::Value>, serde_json::Error> = serde_json::from_value(raw_value);
 
       if map_result.is_err() {
         C5DataValue::Null
       } else {
-        C5DataValue::Map(map_result.unwrap())
+        let mut new_map = HashMap::new();
+        for (key, value) in map_result.unwrap() {
+          new_map.insert(key, serde_json_val_to_c5_value(value));
+        }
+
+        C5DataValue::Map(new_map)
       }
     },
   };
