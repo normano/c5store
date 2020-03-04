@@ -58,8 +58,10 @@ pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
     serde_yaml::Value::Number(value) => {
       if value.is_f64() {
         C5DataValue::Float(value.as_f64().unwrap())
-      } else {
+      } else if value.is_i64() {
         C5DataValue::Integer(value.as_i64().unwrap())
+      } else {
+        C5DataValue::UInteger(value.as_u64().unwrap())
       }
     },
     serde_yaml::Value::Sequence(value) => C5DataValue::Array(value.into_iter().map(|item| serde_yaml_val_to_c5_value(item)).collect()),
@@ -89,8 +91,10 @@ pub fn serde_json_val_to_c5_value(raw_value: serde_json::Value) -> C5DataValue {
     serde_json::Value::Number(value) => {
       if value.is_f64() {
         C5DataValue::Float(value.as_f64().unwrap())
-      } else {
+      } else if value.is_i64() {
         C5DataValue::Integer(value.as_i64().unwrap())
+      } else {
+        C5DataValue::UInteger(value.as_u64().unwrap())
       }
     },
     serde_json::Value::Array(value) => C5DataValue::Array(value.into_iter().map(serde_json_val_to_c5_value).collect()),

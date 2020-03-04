@@ -601,15 +601,27 @@ pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, regi
 
 #[cfg(test)]
 mod tests {
-  use crate::{create_c5store, default_config_paths};
+  use crate::{create_c5store, default_config_paths, C5StoreMgr};
   use crate::C5Store;
   use crate::value::C5DataValue;
 
   #[test]
   fn test_config_contains_bill_bar() {
-    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
-    let (c5store, _c5store_mgr) = create_c5store(config_file_paths, None);
+    let (c5store, _c5store_mgr) = _create_c5store();
 
     assert_eq!(c5store.get("bill.barr").unwrap(), C5DataValue::String(String::from("AG")));
+  }
+
+  #[test]
+  fn test_config_contains_example_test_and() {
+    let (c5store, _c5store_mgr) = _create_c5store();
+
+    assert_eq!(c5store.get("example.test.and").unwrap(), C5DataValue::Integer(1));
+  }
+
+  fn _create_c5store() -> (impl C5Store, C5StoreMgr) {
+    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
+
+    return create_c5store(config_file_paths, None);
   }
 }
