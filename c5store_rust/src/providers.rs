@@ -12,7 +12,7 @@ pub (in crate) const CONFIG_KEY_KEYPATH: &str = ".keyPath";
 pub (in crate) const CONFIG_KEY_PROVIDER: &str = ".provider";
 
 pub enum C5RawValue {
-  Byte(Vec<u8>),
+  Bytes(Vec<u8>),
   String(Box<str>),
 }
 
@@ -220,7 +220,7 @@ impl C5ValueProvider for C5FileValueProvider {
         }
 
         let deserializer = self._deserializer.get(&vp_schema.format).unwrap();
-        let raw_value = C5RawValue::Byte(file_bytes);
+        let raw_value = C5RawValue::Bytes(file_bytes);
         deserialized_value = deserializer(raw_value);
       } else {
         deserialized_value = C5DataValue::Bytes(file_bytes);

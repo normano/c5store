@@ -8,7 +8,7 @@ pub fn deserialize_json(raw_value: C5RawValue) -> C5DataValue {
   let value_result: Result<serde_json::Value, serde_json::Error>;
 
   match raw_value {
-    C5RawValue::Byte(data) => {
+    C5RawValue::Bytes(data) => {
 
       value_result = serde_json::from_slice(data.as_slice());
     },
@@ -31,7 +31,7 @@ pub fn deserialize_yaml(raw_value: C5RawValue) -> C5DataValue {
   let value_result: Result<serde_yaml::Value, serde_yaml::Error>;
 
   match raw_value {
-    C5RawValue::Byte(data) => {
+    C5RawValue::Bytes(data) => {
 
       value_result = serde_yaml::from_slice(data.as_slice());
     },
