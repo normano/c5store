@@ -18,7 +18,7 @@
 
 Let's talk about application configuration expectations.
 
-For example, you have three configuration files. common.yaml, local.yaml and production.yaml
+For example, you have three initial (seed) configuration files. common.yaml, local.yaml and production.yaml
 
 **common.yaml**
 
