@@ -23,10 +23,8 @@ The configuration in a seed file looks like the below.
 
 ### Key and description
 
-These are all required keys. There are no optional keys
-
 **path**: is the relative path from the initial root directory from above.
 
-**encoding**: encoding such as "utf8", "binary", etc. Depends on the file reader used in each language.
-
 **format**: Supports "raw", "yaml" and "json" by default. Can be extended to support more by the user.
+
+**encoding** [default: utf8]: encoding such as "utf8", etc. Depends on the file reader used in each language.
