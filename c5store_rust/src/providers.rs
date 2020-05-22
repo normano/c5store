@@ -175,7 +175,7 @@ impl C5ValueProvider for C5FileValueProvider {
           format,
         };
 
-        self._key_data_map.insert(vp_data.format.clone(), vp_data);
+        self._key_data_map.insert(vp_data.value_schema.value_key_path.clone(), vp_data);
       }
       _ => (),
     }
