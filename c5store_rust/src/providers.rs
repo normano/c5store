@@ -152,10 +152,14 @@ impl C5ValueProvider for C5FileValueProvider {
           return;
         }
 
-        if let C5DataValue::String(vpvalue) = map.get("encoding").unwrap() {
-          encoding = vpvalue.clone().into_boxed_str();
+        if let Some(encoding_value) = map.get("encoding") {
+          if let C5DataValue::String(vpvalue) = encoding_value {
+            encoding = vpvalue.clone().into_boxed_str();
+          } else {
+            return;
+          }
         } else {
-          return;
+          encoding = "utf8".to_string().into_boxed_str();
         }
 
         if let C5DataValue::String(vpvalue) = map.get("format").unwrap() {

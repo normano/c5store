@@ -29,4 +29,4 @@ These are all required keys. There are no optional keys
 
 **encoding**: encoding such as "utf8", "binary", etc. Depends on the file reader used in each language.
 
-**format**: Support "yaml" and "json" by default. Can be extended to support more by the user.
+**format**: Supports "raw", "yaml" and "json" by default. Can be extended to support more by the user.
