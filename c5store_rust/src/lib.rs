@@ -31,7 +31,7 @@ pub struct HydrateContext {
 
 // params: notify key path, key path, value
 pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
-type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
+pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
 
 pub struct C5StoreOptions {
   pub logger: Option<Arc<dyn Logger>>,
