@@ -1,3 +1,11 @@
+mod data;
+mod internal;
+pub mod providers;
+pub mod serialization;
+pub mod telemetry;
+pub mod value;
+pub mod util;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,13 +23,6 @@ use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, 
 use crate::serialization::serde_yaml_val_to_c5_value;
 use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
 use crate::value::C5DataValue;
-
-mod data;
-mod internal;
-pub mod providers;
-pub mod serialization;
-pub mod telemetry;
-pub mod value;
 
 const DEFAULT_CHANGE_DELAY_PERIOD: u64 = 500;
 
