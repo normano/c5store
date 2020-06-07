@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-pub fn expand_vars(template_str: &str, variables: HashMap<String, String>) -> String {
+pub fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> String {
 
   let interpolator: Box<dyn Fn(&str) -> Result<Option<String>, ()>> = Box::new(|var_name: &str| {
 
