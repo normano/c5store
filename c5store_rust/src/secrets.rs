@@ -17,7 +17,7 @@ pub trait SecretDecryptor: Sync + Send {
 pub (in crate) struct Base64SecretDecryptor {}
 
 impl SecretDecryptor for Base64SecretDecryptor {
-  fn decrypt(&self, encrypted_value: &Vec<u8>, key_bytes: &Vec<u8>) -> Result<Vec<u8>, SecretDescryptorError> {
+  fn decrypt(&self, encrypted_value: &Vec<u8>, _key_bytes: &Vec<u8>) -> Result<Vec<u8>, SecretDescryptorError> {
     
     let output_result = base64::decode(encrypted_value);
 

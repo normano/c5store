@@ -1,7 +1,7 @@
 mod data;
 mod internal;
 pub mod providers;
-mod secrets;
+pub mod secrets;
 pub mod serialization;
 pub mod telemetry;
 pub mod value;
