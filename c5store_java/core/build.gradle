@@ -1,0 +1,18 @@
+plugins {
+  id 'maven-publish'
+}
+
+ext.moduleName = "com.excsn.c5store.core"
+
+dependencies {
+  // https://mvnrepository.com/artifact/se.sawano.java/alphanumeric-comparator
+  implementation group: 'se.sawano.java', name: 'alphanumeric-comparator', version: '1.4.1'
+
+  // https://mvnrepository.com/artifact/org.bouncycastle/bcprov-jdk15on
+  implementation group: 'org.bouncycastle', name: 'bcprov-jdk15on', version: '1.69'
+
+  // https://mvnrepository.com/artifact/org.bouncycastle/bcpkix-jdk15on
+  implementation group: 'org.bouncycastle', name: 'bcpkix-jdk15on', version: '1.69'
+}
+
+tasks.publish.enabled = true

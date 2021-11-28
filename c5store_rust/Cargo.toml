@@ -1,0 +1,32 @@
+[package]
+name = "c5store"
+version = "0.1.0"
+authors = ["Norm O <normo.pub@gmail.com>"]
+edition = "2021"
+description = "Provides a unified store for configuration and secrets."
+license = "MPL-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base64 = "^0.13"
+curve25519-parser = { version = "^0.2"}
+ecies_25519 = "^0.1"
+log = "^0.4"
+maplit = "1.0.2"
+multimap = "^0.8"
+natord = "^1.0"
+num-rational = "^0.3"
+num-traits = "^0.2"
+parking_lot = "^0.10"
+scheduled-thread-pool = "^0.2"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+serde_yaml = "^0.8"
+sha2 = "^0.9"
+shellexpand = "^2.0"
+skiplist = "^0.3"
+yaml-rust = "^0.4"
+
+[dev-dependencies]
+serde_test = "^1.0"

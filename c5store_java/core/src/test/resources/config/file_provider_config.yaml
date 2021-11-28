@@ -1,0 +1,4 @@
+file_provider1:
+  bar:
+    .provider: "bar_provider"
+    path: "bar.txt"

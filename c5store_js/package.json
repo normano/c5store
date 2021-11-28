@@ -1,0 +1,55 @@
+{
+  "name": "@excsn/c5store",
+  "version": "1.0.0",
+  "description": "All encompassing configuration store to meet all needs.",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "APP_ENV=test yarn run ava --tap",
+    "test:cov": "yarn run nyc -r cobertura -r html -r text yarn run test",
+    "build": "tsc"
+  },
+  "author": "Norm O <normo.pub@gmail.com>",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/normano/c5store.git"
+  },
+  "dependencies": {
+    "@excsn/ecies_25519": "^0.1.0",
+    "@excsn/jumplist": "^0.3.1",
+    "@teppeis/multimaps": "^2.0.0",
+    "dequal": "^2.0.2",
+    "fs-extra": "^10.0.0",
+    "js-yaml": "^4.1.0",
+    "lodash.merge": "^4.6.2",
+    "node-schedule": "^2.0.0",
+    "string-natural-compare": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^9.0.13",
+    "@types/node": "^16.11.10",
+    "ava": "^3.15.0",
+    "nyc": "^15.1.0",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.5.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "ava": {
+    "extensions": [
+      "ts"
+    ],
+    "failFast": true,
+    "tap": true,
+    "powerAssert": false,
+    "files": [
+      "test/**/*",
+      "!test/src/**"
+    ],
+    "require": [
+      "ts-node/register"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+example:
+  foo: BAR
+  junk:
+    .provider: resources
+    path: "example.json"
+    format: "json"
+  secret:
+    .provider: resources
+    path: "some_secret.yaml"
+    format: "yaml"
+bill:
+  barr: AG
+  bullshit:
+    .provider: resources
+    path: "pub_data"
+list_of_items:
+- "Does"
+- "This"
+- "work?"

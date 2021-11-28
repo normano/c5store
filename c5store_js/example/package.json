@@ -1,0 +1,19 @@
+{
+  "name": "c5store_example",
+  "version": "1.0.0",
+  "description": "Example of usage of C5Store",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts"
+  },
+  "author": "Norm O <normo.pub@gmail.com>",
+  "license": "MPL-2.0",
+  "dependencies": {
+    "@excsn/c5store": "../"
+  },
+  "devDependencies": {
+    "@types/node": "^12.12.14",
+    "ts-node": "^8.6.2",
+    "typescript": "^3.7.2"
+  }
+}

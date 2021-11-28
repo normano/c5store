@@ -1,0 +1,4 @@
+rootProject.name = 'c5store'
+include 'core'
+include 'example'
+

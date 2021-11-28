@@ -1,0 +1,9 @@
+what:
+  why:
+  - "how"
+  - "no"
+  - "wow"
+secret:
+  store:
+    .provider: "secrets"
+    path: "secret_store"
