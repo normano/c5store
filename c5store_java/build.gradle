@@ -34,7 +34,6 @@ subprojects {
 
   apply plugin: "maven-publish"
   apply plugin: 'java-library'
-  apply plugin: 'maven'
   apply plugin: 'jacoco'
 
   sourceCompatibility = 1.11
@@ -58,6 +57,9 @@ subprojects {
       downloadSources = true
     }
   }
+
+  processResources.duplicatesStrategy = DuplicatesStrategy.INCLUDE
+  processTestResources.duplicatesStrategy = DuplicatesStrategy.INCLUDE
 
   afterEvaluate {
 
