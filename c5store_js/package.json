@@ -1,6 +1,6 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.0",
+  "version": "1.0.0-prerelease.4",
   "description": "All encompassing configuration store to meet all needs.",
   "main": "dist/index.js",
   "scripts": {
@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@excsn/ecies_25519": "^0.1.0",
-    "@excsn/jumplist": "^0.3.1",
+    "@excsn/jumplist": "^0.3.2",
     "@teppeis/multimaps": "^2.0.0",
     "dequal": "^2.0.2",
     "fs-extra": "^10.0.0",
     "js-yaml": "^4.1.0",
     "lodash.merge": "^4.6.2",
-    "node-schedule": "^2.0.0",
+    "node-schedule": "^2.1.0",
     "string-natural-compare": "^3.0.1"
   },
   "devDependencies": {
