@@ -37,12 +37,12 @@ pub struct HydrateContext {
 // params: notify key path, key path, value
 pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
 pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
-type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
+pub type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
 
 pub struct SecretOptions {
-  secret_key_path_segment: Option<Box<str>>,
-  secret_keys_path: Option<PathBuf>,
-  secret_key_store_configure_fn: Option<Box<SecretKeyStoreConfiguratorFn>>,
+  pub secret_key_path_segment: Option<Box<str>>,
+  pub secret_keys_path: Option<PathBuf>,
+  pub secret_key_store_configure_fn: Option<Box<SecretKeyStoreConfiguratorFn>>,
 }
 
 impl Default for SecretOptions {
