@@ -6,12 +6,14 @@ import com.excsn.c5store.core.C5StoreUtils;
 import com.excsn.c5store.core.telemetry.Logger;
 import com.excsn.c5store.core.telemetry.StatsRecorder;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class Main {
-  public static void main(String[] args) throws InterruptedException {
+  public static void main(String[] args) throws Exception {
 
     var logger = new Logger() {
       @Override
@@ -56,16 +58,18 @@ public class Main {
       }
     };
 
-    var configDir = Paths.get("example", "src", "main", "resources", "config").toAbsolutePath();
+    var configDir = Paths.get("src", "main", "resources", "config").toAbsolutePath();
     var releaseEnv = "development";
     var appEnv = "local";
     var region = "localdc";
 
     var configFilePaths = C5StoreUtils.defaultConfigFilePaths(configDir.toString(), releaseEnv, appEnv, region);
+    System.out.println("Config file paths: " + configFilePaths.stream().map(Path::toAbsolutePath).map(Path::toString).collect(Collectors.joining(", ")));
+
     var c5StoreHolder = C5StoreBuilder.builder().setChangeDelayPeriod(100).setTelemetry(logger, statsRecorder)
       .setConfigFilePaths(configFilePaths).build();
 
-    var secretsDir = Paths.get("example", "src", "main", "resources", "config", "secrets").toAbsolutePath();
+    var secretsDir = Paths.get("src", "main", "resources", "config", "secrets").toAbsolutePath();
     var secretsProvider = C5FileValueProvider.createDefault(secretsDir.toString());
 
     c5StoreHolder.configMgr.setVProvider("secrets", secretsProvider, Duration.ofSeconds(3));

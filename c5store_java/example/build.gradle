@@ -1,5 +1,13 @@
+plugins {
+  id 'application'
+}
+
 ext.moduleName = "com.excsn.c5store.example"
 
 dependencies {
   implementation project(":core")
+}
+
+application {
+  mainClass = 'com.excsn.c5store.example.Main'
 }

@@ -19,6 +19,8 @@ task buildAll(type: GradleBuild) {
 }
 
 allprojects {
+  apply plugin: 'se.patrikerdes.use-latest-versions'
+  apply plugin: 'com.github.ben-manes.versions'
 
   group 'com.excsn.c5store'
   version = '1.0.0-SNAPSHOT'
@@ -32,9 +34,9 @@ allprojects {
 
 subprojects {
 
-  apply plugin: "maven-publish"
   apply plugin: 'java-library'
   apply plugin: 'jacoco'
+  apply plugin: "maven-publish"
 
   sourceCompatibility = 1.11
   targetCompatibility = 1.11
@@ -45,6 +47,12 @@ subprojects {
     options.incremental = true
     options.verbose = false
   }
+
+  java {
+
+    modularity.inferModulePath.set(true)
+  }
+
 
   apply plugin: 'idea'
 
