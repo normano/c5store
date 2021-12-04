@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.excsn.c5store.core.C5StoreUtils.buildFlatMap;
+
 public class C5FileValueProvider implements C5ValueProvider {
 
   private Map<String, C5FileValueProviderSchema> _keyDataMap;
@@ -91,7 +93,18 @@ public class C5FileValueProvider implements C5ValueProvider {
         deserializedValue = fileContents;
       }
 
-      setData.setData(keyPath, deserializedValue);
+      if(deserializedValue instanceof Map) {
+
+        var configDataMap = new HashMap<String, Object>();
+        buildFlatMap((Map<String, Object>) deserializedValue, configDataMap, keyPath);
+
+        for(var configEntry : configDataMap.entrySet()) {
+          setData.setData(configEntry.getKey(), configEntry.getValue());
+        }
+      } else {
+
+        setData.setData(keyPath, deserializedValue);
+      }
     }
   }
 

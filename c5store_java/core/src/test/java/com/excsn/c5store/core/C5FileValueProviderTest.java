@@ -1,6 +1,8 @@
 package com.excsn.c5store.core;
 
+import com.excsn.c5store.core.serializers.C5JSONValueDeserializer;
 import com.excsn.c5store.core.serializers.C5ValueDeserializer;
+import com.excsn.c5store.core.serializers.C5YAMLValueDeserializer;
 import com.excsn.c5store.core.telemetry.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,6 +21,7 @@ import java.util.Map;
 class C5FileValueProviderTest {
 
   private static String _fp1BarKeyPath = "file_provider1.bar";
+  private static String _playtestKeyPath = "playtest";
   private Map<String, C5ValueDeserializer> _deserializers;
   private Yaml _yaml;
   private Map _providerData;
@@ -29,6 +32,9 @@ class C5FileValueProviderTest {
 
     _yaml = new Yaml();
     _deserializers = new HashMap<>();
+    _deserializers.put("json", C5JSONValueDeserializer.create());
+    _deserializers.put("yaml", new C5YAMLValueDeserializer());
+
     var configRoot = Paths.get("src","test", "resources", "config");
     _providerConfigPath = Path.of(configRoot.toString(),"foo");
 
@@ -56,15 +62,20 @@ class C5FileValueProviderTest {
     barProvider.hydrate(setDataFn, true, new HydrateContext(logger));
 
     Mockito.verify(setDataFn, Mockito.times(1)).setData(Mockito.eq(_fp1BarKeyPath), Mockito.any());
+    Mockito.verify(setDataFn, Mockito.times(3)).setData(Mockito.startsWith(_playtestKeyPath), Mockito.any());
   }
 
   private C5FileValueProvider _createBarProvider() {
 
-    C5FileValueProvider barProvider = new C5FileValueProvider(_providerConfigPath.toString(), _deserializers);
+    var barProvider = new C5FileValueProvider(_providerConfigPath.toString(), _deserializers);
+
     var vpData = (Map<String, Object>) ((Map<String, Object>)_providerData.get("file_provider1")).get("bar");
     vpData.put(C5Consts.CONFIG_KEY_KEYPATH, _fp1BarKeyPath);
-
     barProvider.register(vpData);
+
+    var playtestVpData = (Map<String, Object>) _providerData.get("playtest");
+    playtestVpData.put(C5Consts.CONFIG_KEY_KEYPATH, _playtestKeyPath);
+    barProvider.register(playtestVpData);
 
     return barProvider;
   }

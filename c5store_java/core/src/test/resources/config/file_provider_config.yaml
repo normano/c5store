@@ -2,3 +2,7 @@ file_provider1:
   bar:
     .provider: "bar_provider"
     path: "bar.txt"
+playtest:
+  .provider: "bar_provider"
+  path: "playtest.yaml"
+  format: "yaml"

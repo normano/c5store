@@ -38,6 +38,48 @@ public final class C5StoreUtils {
     return new ExtractedConfigData(configData, providedData);
   }
 
+  public static void buildFlatMap(
+    Map<String, Object> origData,
+    Map<String, Object> flattenData,
+    String keyPath
+  ) {
+
+    var keysIter = origData.keySet().iterator();
+
+    while (keysIter.hasNext()) {
+
+      var key = keysIter.next();
+      var value = origData.get(key);
+      var newKeyPath = (keyPath == null) ? key : keyPath + "." + key;
+
+      if(value instanceof Map) {
+
+        var nextConfigData = (Map<String, Object>) value;
+
+        if(!nextConfigData.containsKey(C5Consts.CONFIG_KEY_PROVIDER)) {
+
+          buildFlatMap(nextConfigData, flattenData, newKeyPath);
+
+          if(nextConfigData.size() == 0) {
+            keysIter.remove();
+          }
+
+          continue;
+        } else {
+
+          nextConfigData.put(C5Consts.CONFIG_KEY_KEYPATH, newKeyPath);
+          nextConfigData.put(C5Consts.CONFIG_KEY_KEYNAME, key);
+
+          keysIter.remove();
+        }
+
+      } else {
+
+        flattenData.put(newKeyPath, value);
+      }
+    }
+  }
+
   static void traverseConfig(
     Map<String, Object> rawConfigData,
     Map<String, Object> configData,
