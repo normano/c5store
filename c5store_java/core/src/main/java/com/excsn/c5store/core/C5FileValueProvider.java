@@ -11,13 +11,11 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.excsn.c5store.core.C5StoreUtils.buildFlatMap;
-
 public class C5FileValueProvider implements C5ValueProvider {
 
-  private Map<String, C5FileValueProviderSchema> _keyDataMap;
-  private String _fileRootDir;
-  private Map<String, C5ValueDeserializer> _deserializers;
+  private final Map<String, C5FileValueProviderSchema> _keyDataMap;
+  private final String _fileRootDir;
+  private final Map<String, C5ValueDeserializer> _deserializers;
 
   public C5FileValueProvider(String fileRootDir, Map<String, C5ValueDeserializer> deserializers) {
     _keyDataMap = new HashMap<>();
@@ -93,18 +91,7 @@ public class C5FileValueProvider implements C5ValueProvider {
         deserializedValue = fileContents;
       }
 
-      if(deserializedValue instanceof Map) {
-
-        var configDataMap = new HashMap<String, Object>();
-        buildFlatMap((Map<String, Object>) deserializedValue, configDataMap, keyPath);
-
-        for(var configEntry : configDataMap.entrySet()) {
-          setData.setData(configEntry.getKey(), configEntry.getValue());
-        }
-      } else {
-
-        setData.setData(keyPath, deserializedValue);
-      }
+      HydrateContext.pushValueToDataStore(setData, keyPath, deserializedValue);
     }
   }
 
