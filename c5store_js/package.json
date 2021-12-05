@@ -1,6 +1,6 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.0-prerelease.4",
+  "version": "1.0.0-prerelease.5",
   "description": "All encompassing configuration store to meet all needs.",
   "main": "dist/index.js",
   "scripts": {
