@@ -3,12 +3,12 @@ import crypto from "crypto";
 import naturalCompare from "string-natural-compare";
 
 import { SecretKeyStore } from "./secrets";
-
 import { Logger, StatsRecorder } from "./telemetry";
+import { buildFlatMap } from "./util";
 
-const naturalCompareOpts = {
+const naturalCompareOpts = Object.freeze({
   "caseInsensitive": true,
-};
+});
 
 const naturalCompareIgnoreCase = (key1, key2) => naturalCompare(key1, key2, naturalCompareOpts);
 
@@ -164,6 +164,27 @@ export class HydrateContext {
   constructor(
     public logger: Logger,
   ) {}
+
+  public static pushValueToDataStore(setData: SetDataFn, keyPath: string, deserializedValue: any,)  {
+
+    if (
+      typeof deserializedValue === "object" &&
+      !Buffer.isBuffer(deserializedValue) &&
+      !Array.isArray(deserializedValue)
+    ) {
+      const configDataMap = {};
+      buildFlatMap(deserializedValue, configDataMap, keyPath);
+  
+      const configDataMapKeys = Object.keys(configDataMap);
+  
+      for (const key of configDataMapKeys) {
+        setData(key, configDataMap[key]);
+      }
+    } else {
+  
+      setData(keyPath, deserializedValue);
+    }
+  }
 }
 
 function calcHashValue(algo: string, secretKeyName: string, encodedData: string): Buffer {

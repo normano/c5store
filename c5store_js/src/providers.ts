@@ -125,13 +125,20 @@ export class C5FileValueProvider implements C5ValueProvider {
           
           continue;
         }
+
         let deserializer = this._deserializers.get(vpData.format);
         deserializedValue = deserializer.deserialize(fileContents);
       } else {
         deserializedValue = fileContents;
       }
 
-      setData(keyPath, deserializedValue);
+      if(deserializedValue == null) {
+
+        context.logger.warn(`${vpData.vKeyPath} deserialized value is null.`);
+        continue;
+      }
+
+      HydrateContext.pushValueToDataStore(setData, keyPath, deserializedValue,);
     }
   }
 }

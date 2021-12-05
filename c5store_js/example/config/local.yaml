@@ -17,3 +17,5 @@ list_of_items:
 - "Does"
 - "This"
 - "work?"
+hello_secret:
+  .c5encval: ["ecies_x25519", "test_local", "iQv4jONnOQvzIXqkYPT1q2VbD+A1fCKG6yp+VhCtAQdm3N2J4vhv/Z9rtGVp88gmmXo/rFdG7rGQ9hyIQDB8S6auVagBFPI="]
