@@ -96,25 +96,25 @@ impl C5FileValueProviderSchema {
 }
 
 pub struct C5FileValueProvider {
-  _file_path: Box<str>,
+  _base_dir_path: Box<str>,
   _key_data_map: HashMap<Box<str>, C5FileValueProviderSchema>,
   _deserializer: HashMap<Box<str>, Box<C5ValueDeserializer>>,
 }
 
 impl C5FileValueProvider {
 
-  pub fn new(file_path: &str) -> C5FileValueProvider {
+  pub fn new(base_path: &str) -> C5FileValueProvider {
 
     return C5FileValueProvider {
-      _file_path: Box::from(file_path),
+      _base_dir_path: Box::from(base_path),
       _key_data_map: HashMap::new(),
       _deserializer: HashMap::new(),
     }
   }
 
-  pub fn default(file_path: &str) -> C5FileValueProvider {
+  pub fn default(base_path: &str) -> C5FileValueProvider {
 
-    let mut provider = C5FileValueProvider::new(file_path);
+    let mut provider = C5FileValueProvider::new(base_path);
 
     provider.register_deserializer("json", deserialize_json);
     provider.register_deserializer("yaml", deserialize_yaml);
@@ -162,10 +162,14 @@ impl C5ValueProvider for C5FileValueProvider {
           encoding = "utf8".to_string().into_boxed_str();
         }
 
-        if let C5DataValue::String(vpvalue) = map.get("format").unwrap() {
-          format = vpvalue.clone().into_boxed_str();
+        if let Some(format_value) = map.get("format") {
+          if let C5DataValue::String(vpvalue) = format_value {
+            format = vpvalue.clone().into_boxed_str();
+          } else {
+            return;
+          }
         } else {
-          return;
+          format = "raw".to_string().into_boxed_str();
         }
 
         let vp_data = C5FileValueProviderSchema {
@@ -199,7 +203,7 @@ impl C5ValueProvider for C5FileValueProvider {
       file_path.push(Path::new(&*vp_schema.path));
 
       if !file_path.is_absolute() {
-        file_path = PathBuf::from_iter(&[&*self._file_path, &*vp_schema.path]).canonicalize().unwrap();
+        file_path = PathBuf::from_iter(&[&*self._base_dir_path, &*vp_schema.path]).canonicalize().unwrap();
       }
 
       if !file_path.exists() {
@@ -230,7 +234,30 @@ impl C5ValueProvider for C5FileValueProvider {
         deserialized_value = C5DataValue::Bytes(file_bytes);
       }
 
-      set_data_fn(key_path, deserialized_value);
+      HydrateContext::push_value_to_data_store(set_data_fn, key_path, deserialized_value);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{providers::C5FileValueProvider, value::C5DataValue, C5Store, C5StoreMgr, default_config_paths, create_c5store};
+
+
+  #[test]
+  fn test_config_contains_example_junk() {
+    let (c5store, mut c5store_mgr) = _create_c5store();
+
+    let file_path = "resources";
+    c5store_mgr.set_value_provider("resources", C5FileValueProvider::default(file_path), 3);
+
+    assert_eq!(c5store.get("example.junk.some").unwrap(), C5DataValue::String(String::from("data")));
+    assert_eq!(c5store.get("example.junk.very").unwrap(), C5DataValue::String(String::from("doge")));
+  }
+
+  fn _create_c5store() -> (impl C5Store, C5StoreMgr) {
+    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
+
+    return create_c5store(config_file_paths, None);
   }
 }

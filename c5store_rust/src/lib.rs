@@ -19,6 +19,7 @@ use multimap::MultiMap;
 use parking_lot::Mutex;
 use scheduled_thread_pool::{JobHandle, ScheduledThreadPool};
 use serde_yaml::Value;
+use util::build_flat_map;
 
 use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
@@ -32,6 +33,30 @@ const DEFAULT_CHANGE_DELAY_PERIOD: u64 = 500;
 
 pub struct HydrateContext {
   pub logger: Arc<dyn Logger>,
+}
+
+impl HydrateContext {
+  pub fn push_value_to_data_store(set_data_fn: &SetDataFn, key: &str, value: C5DataValue) {
+
+    match value {
+      C5DataValue::Map(mut value) => {
+
+        let mut config_data = HashMap::new();
+        build_flat_map(&mut value, &mut config_data, String::from(key));
+
+        for config_entry in config_data.into_iter() {
+
+          let config_entry_key = config_entry.0;
+          let config_value = config_entry.1;
+
+          set_data_fn(&config_entry_key, config_value);
+        }
+        return;
+      }
+      _ => {}
+    }
+    set_data_fn(key, value);
+  }
 }
 
 // params: notify key path, key path, value

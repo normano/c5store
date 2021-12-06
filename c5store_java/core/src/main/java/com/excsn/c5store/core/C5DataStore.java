@@ -50,8 +50,8 @@ class C5DataStore {
 
         if(decryptedVal == null) {
           return; // No value to store
-
         }
+
         var dataPath = keyPath.substring(0, keyPath.length() - _secretKeyPathSegment.length());
         _data.put(dataPath, decryptedVal);
       } catch (GeneralSecurityException | IOException e) {
