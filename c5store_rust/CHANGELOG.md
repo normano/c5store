@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3]
+
+### Changed
+- create_c5store returns C5StoreRoot struct rather than impl trait
+
 ## [0.2.2]
 
 ### Added

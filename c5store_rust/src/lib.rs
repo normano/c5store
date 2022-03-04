@@ -445,7 +445,7 @@ impl Drop for C5StoreMgr {
 pub fn create_c5store(
   config_file_paths: Vec<PathBuf>,
   mut options_option: Option<C5StoreOptions>
-) -> (impl C5Store, C5StoreMgr) {
+) -> (C5StoreRoot, C5StoreMgr) {
 
   if options_option.is_none() {
     options_option = Some(C5StoreOptions::default());
