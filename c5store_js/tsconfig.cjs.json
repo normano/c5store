@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "_intermediate/cjs",
+    "outDir": "dist/cjs",
+    "lib": ["es2020", "DOM"],
+    "target": "esnext",
+    "module": "esnext"
+  },
+  "include": [
+    "./_intermediate/cjs/**/*.cts"
+  ],
+  "exclude": [
+    "./tests/**/*.cts"
+  ]
+}

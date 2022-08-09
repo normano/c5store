@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "_intermediate/mjs",
+    "outDir": "dist/esm",
+    "lib": ["es2020", "DOM"],
+    "target": "esnext",
+    "module": "esnext"
+  },
+  "include": [
+    "./_intermediate/mjs/**/*.mts"
+  ],
+  "exclude": [
+    "./tests/**/*.mts"
+  ]
+}

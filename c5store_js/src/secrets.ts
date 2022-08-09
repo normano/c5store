@@ -28,7 +28,7 @@ export class SecretKeyStore {
     this._keys = new Map();
   }
 
-  public getDecryptor(name: string): SecretDecryptor {
+  public getDecryptor(name: string): SecretDecryptor | undefined {
     return this._secretDecryptors.get(name);
   }
 
@@ -36,7 +36,7 @@ export class SecretKeyStore {
     this._secretDecryptors.set(name, decryptor);
   }
 
-  public getKey(name: string): Buffer {
+  public getKey(name: string): Buffer | undefined {
     return this._keys.get(name);
   }
 

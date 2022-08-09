@@ -1,4 +1,4 @@
-import { parsePemPrivateKey } from "@excsn/ecies_25519/dist/utils";
+import { parsePemPrivateKey } from "@excsn/ecies_25519/utils";
 import { ArrayMultimap, SetMultimap } from "@teppeis/multimaps";
 import { dequal } from "dequal";
 import fs from "fs-extra";
@@ -7,10 +7,10 @@ import _merge from "lodash.merge";
 import nodeSchedule from "node-schedule";
 import path from "path";
 
-import { C5DataStore, GetDataFn, SetDataFn, HydrateContext, KeyExistsFn, PrefixKeysFn } from "./internal";
-import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers";
-import { SecretKeyStore } from "./secrets";
-import { StatsRecorder, Logger } from "./telemetry";
+import { C5DataStore, GetDataFn, SetDataFn, HydrateContext, KeyExistsFn, PrefixKeysFn } from "./internal.js";
+import { C5ValueProvider, CONFIG_KEY_PROVIDER, CONFIG_KEY_KEYPATH, CONFIG_KEY_KEYNAME } from "./providers.js";
+import { SecretKeyStore } from "./secrets.js";
+import { StatsRecorder, Logger } from "./telemetry.js";
 
 const DEFAULT_CHANGE_DELAY_PERIOD = 500;
 type ChangeListener = (notifyKeyPath: string, keyPath: string, value: any) => void;
@@ -66,7 +66,7 @@ export interface C5Store {
   /**
    * @return null if root, prefixKey if branch
    */
-  readonly currentKeyPath: string;
+  readonly currentKeyPath: string | null;
 
   /**
    * Searches for all keypaths that relative to currentKeyPath + given keyPath
@@ -103,7 +103,7 @@ export class C5StoreRoot implements C5Store {
     return new C5StoreBranch(this, prefixKeyPath);
   }
 
-  public get currentKeyPath(): string {
+  public get currentKeyPath(): string | null {
     return null;
   }
 
@@ -139,7 +139,7 @@ export class C5StoreBranch implements C5Store {
     return this._root.branch(this._mergeKeyPath(prefixKeyPath));
   }
 
-  public get currentKeyPath(): string {
+  public get currentKeyPath(): string | null {
     return this._keyPath;
   }
 
@@ -160,7 +160,7 @@ export class C5StoreBranch implements C5Store {
 export class C5StoreMgr {
 
   _valueProviders: Map<string, C5ValueProvider> = new Map<string, C5ValueProvider>();
-  _scheduledProviderHydates = [];
+  _scheduledProviderHydates: nodeSchedule.Job[] = [];
   _isStarted: boolean = false;
 
   constructor(
@@ -315,10 +315,10 @@ export async function createC5Store(
   );
 
   let changeDelayPeriod = DEFAULT_CHANGE_DELAY_PERIOD;
-  if(options.changeDelayPeriod > -1) {
+  if(options.changeDelayPeriod && options.changeDelayPeriod > -1) {
     changeDelayPeriod = options.changeDelayPeriod;
   }
-  let changeTimer = null;
+  let changeTimer: NodeJS.Timeout | null = null;
   let changedKeyPaths = new Set<string>();
 
   const clearChangeTimer = () => {
@@ -384,7 +384,7 @@ export async function createC5Store(
     }
   };
 
-  const setData = (key, value) => {
+  const setData = (key: string, value: any) => {
 
     //TODO Changes are immediately visible, but not sure if it is the best idea. Maybe should
     // wait until change notfications are resolved to be sent out first.
@@ -424,7 +424,10 @@ export async function createC5Store(
   let [configData, providedData] = await extractProvidedAndConfigData(rawConfigData);
 
   let c5StoreMgr = new C5StoreMgr(setData, providedData, logger, stats);
-  loadSecretKeyFiles(secretOpts.secretKeysPath, secretKeyStore);
+
+  if(secretOpts.secretKeysPath || typeof secretOpts.secretKeysPath === "string") {
+    loadSecretKeyFiles(secretOpts.secretKeysPath, secretKeyStore);
+  }
 
   let configDataKeys = Object.keys(configData);
   for (let configDataKey of configDataKeys) {
@@ -449,7 +452,7 @@ export function defaultConfigFiles(configDir: string, releaseEnv: string, env:st
   ].map((configFilePath) => path.resolve(configDir, configFilePath));
 }
 
-async function extractProvidedAndConfigData(rawConfigData: object): Promise<[object, ArrayMultimap<string, any>]> {
+async function extractProvidedAndConfigData(rawConfigData: any): Promise<[any, ArrayMultimap<string, any>]> {
 
   let configData = {};
   let providedData = new ArrayMultimap<string, any>();
@@ -459,10 +462,10 @@ async function extractProvidedAndConfigData(rawConfigData: object): Promise<[obj
 }
 
 function traverseConfig(
-  rawConfigData: object,
+  rawConfigData: any,
   configData: any,
   providedData: ArrayMultimap<string, any>,
-  keyPath: string
+  keyPath: string | null
 ) {
 
   let keys = Object.keys(rawConfigData);
@@ -502,11 +505,6 @@ function traverseConfig(
 
 function loadSecretKeyFiles(secretKeysPath: string, secretKeyStore: SecretKeyStore) {
 
-  if(!secretKeysPath || typeof secretKeysPath !== "string") {
-    return;
-  }
-
-
   if(!fs.pathExistsSync(secretKeysPath)) {
     return;
   }
@@ -520,7 +518,7 @@ function loadSecretKeyFiles(secretKeysPath: string, secretKeyStore: SecretKeySto
     const fileExt = path.extname(file);
     const keyName = path.basename(file, fileExt);
 
-    let key: Buffer = null;
+    let key: Buffer;
     const keyContents = fs.readFileSync(path.join(resolvedKeysPath, file));
 
     if(fileExt === ".pem") {

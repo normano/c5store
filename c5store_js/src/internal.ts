@@ -2,15 +2,15 @@ import JumpList from "@excsn/jumplist";
 import crypto from "crypto";
 import naturalCompare from "string-natural-compare";
 
-import { SecretKeyStore } from "./secrets";
-import { Logger, StatsRecorder } from "./telemetry";
-import { buildFlatMap } from "./util";
+import { SecretKeyStore } from "./secrets.js";
+import { Logger, StatsRecorder } from "./telemetry.js";
+import { buildFlatMap } from "./util.js";
 
 const naturalCompareOpts = Object.freeze({
   "caseInsensitive": true,
 });
 
-const naturalCompareIgnoreCase = (key1, key2) => naturalCompare(key1, key2, naturalCompareOpts);
+const naturalCompareIgnoreCase = (key1: string, key2: string) => naturalCompare(key1, key2, naturalCompareOpts);
 
 /** @internal */
 export class C5DataStore {
@@ -53,7 +53,7 @@ export class C5DataStore {
         this._data.set(dataPath, decryptedVal);
       } catch(error) {
 
-        this._logger.error(`Could not set data for key path \`${key}\``, error);
+        this._logger.error(`Could not set data for key path \`${key}\``, error as Error);
         this._statsRecorder.recordCounterIncrement({"group": "c5store"}, "set_errors");
       }
     } else {
@@ -73,7 +73,7 @@ export class C5DataStore {
 
     if (keyPath == null) {
 
-      this._data.forEach((key, _value) => {
+      this._data.forEach((key: string, _value: any) => {
 
         keys.push(key);
       });
@@ -85,7 +85,7 @@ export class C5DataStore {
         return !key.startsWith(prefixPath);
       };
 
-      this._data.rangeUpper(keyPath, (key, _value) => {
+      this._data.rangeUpper(keyPath, (key: string, _value: any) => {
 
         if (prefixSearchShouldTerminate(key)) {
           return false;
@@ -105,7 +105,7 @@ export class C5DataStore {
       throw new Error(`Key Path \`${keyPath}\` does not have the required number of arguments`);
     }
 
-    const data = <any[]>value;
+    const data = value as any[];
     const algo = data[0];
     const secretKeyName = data[1];
     const encodedData = data[2];
@@ -128,7 +128,7 @@ export class C5DataStore {
 
       const existingHashValue = this._valueHashCache.get(keyPath);
 
-      if(existingHashValue.equals(hashValue)) {
+      if(existingHashValue && existingHashValue.equals(hashValue)) {
         return null;
       }
     } else {
@@ -172,7 +172,7 @@ export class HydrateContext {
       !Buffer.isBuffer(deserializedValue) &&
       !Array.isArray(deserializedValue)
     ) {
-      const configDataMap = {};
+      const configDataMap: any = {};
       buildFlatMap(deserializedValue, configDataMap, keyPath);
   
       const configDataMapKeys = Object.keys(configDataMap);

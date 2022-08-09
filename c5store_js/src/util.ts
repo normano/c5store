@@ -1,7 +1,7 @@
-import { CONFIG_KEY_PROVIDER } from "./providers";
+import { CONFIG_KEY_PROVIDER } from "./providers.js";
 
 export function buildFlatMap(
-  rawConfigData: object,
+  rawConfigData: any,
   configData: any,
   keyPath: string
 ) {

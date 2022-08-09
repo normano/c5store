@@ -1,22 +1,50 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.0-prerelease.5",
+  "version": "1.0.0",
   "description": "All encompassing configuration store to meet all needs.",
-  "main": "dist/index.js",
+  "author": "Norm O <normo.pub@gmail.com>",
+  "license": "MPL-2.0",
+  "type": "module",
+  "main": "dist/cjs/index.cjs",
+  "module": "dist/esm/index.mjs",
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.cjs",
+      "import": "./dist/esm/index.mjs"
+    },
+    "./providers": {
+      "require": "./dist/cjs/index.cjs",
+      "import": "./dist/esm/index.mjs"
+    },
+    "./secrets": {
+      "require": "./dist/cjs/secrets.cjs",
+      "import": "./dist/esm/secrets.mjs"
+    },
+    "./serialization": {
+      "require": "./dist/cjs/serialization.cjs",
+      "import": "./dist/esm/serialization.mjs"
+    },
+    "./telemetry": {
+      "require": "./dist/cjs/telemetry.cjs",
+      "import": "./dist/esm/telemetry.mjs"
+    },
+    "./util": {
+      "require": "./dist/cjs/util.cjs",
+      "import": "./dist/esm/util.mjs"
+    }
+  },
   "scripts": {
     "test": "APP_ENV=test yarn run ava --tap",
     "test:cov": "yarn run nyc -r cobertura -r html -r text yarn run test",
-    "build": "tsc"
+    "build": "sh ./scripts/build.sh"
   },
-  "author": "Norm O <normo.pub@gmail.com>",
-  "license": "MPL-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/normano/c5store.git"
   },
   "dependencies": {
-    "@excsn/ecies_25519": "^0.1.0",
-    "@excsn/jumplist": "^0.3.2",
+    "@excsn/ecies_25519": "^0.1.2",
+    "@excsn/jumplist": "^0.3.5",
     "@teppeis/multimaps": "^2.0.0",
     "dequal": "^2.0.2",
     "fs-extra": "^10.0.0",
@@ -27,7 +55,11 @@
   },
   "devDependencies": {
     "@types/fs-extra": "^9.0.13",
+    "@types/js-yaml": "^4.0.5",
+    "@types/lodash.merge": "^4.6.7",
     "@types/node": "^16.11.10",
+    "@types/node-schedule": "^2.1.0",
+    "@types/string-natural-compare": "^3.0.2",
     "ava": "^3.15.0",
     "nyc": "^15.1.0",
     "ts-node": "^10.4.0",

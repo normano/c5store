@@ -1,8 +1,8 @@
 import fs from "fs-extra";
 import path from "path";
 
-import { SetDataFn, HydrateContext } from "./internal";
-import { C5ValueDeserializer, C5JSONValueDeserializer, C5YAMLValueDeserializer } from "./serialization";
+import { SetDataFn, HydrateContext } from "./internal.js";
+import { C5ValueDeserializer, C5JSONValueDeserializer, C5YAMLValueDeserializer } from "./serialization.js";
 
 export const CONFIG_KEY_KEYNAME = ".key";
 export const CONFIG_KEY_KEYPATH = ".keyPath";
@@ -126,7 +126,7 @@ export class C5FileValueProvider implements C5ValueProvider {
           continue;
         }
 
-        let deserializer = this._deserializers.get(vpData.format);
+        let deserializer = this._deserializers.get(vpData.format)!;
         deserializedValue = deserializer.deserialize(fileContents);
       } else {
         deserializedValue = fileContents;
