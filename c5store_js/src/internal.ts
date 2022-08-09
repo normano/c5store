@@ -4,7 +4,6 @@ import naturalCompare from "string-natural-compare";
 
 import { SecretKeyStore } from "./secrets.js";
 import { Logger, StatsRecorder } from "./telemetry.js";
-import { buildFlatMap } from "./util.js";
 
 const naturalCompareOpts = Object.freeze({
   "caseInsensitive": true,
@@ -151,39 +150,6 @@ export class C5DataStore {
     }
 
     return decryptor.decrypt(Buffer.from(encodedData), key);
-  }
-}
-
-export type GetDataFn = (keyPath: string) => any;
-export type SetDataFn = (keyPath: string, value: any) => void;
-export type KeyExistsFn = (keyPath: string) => boolean;
-export type PrefixKeysFn = (keyPath: string) => string[];
-
-export class HydrateContext {
-
-  constructor(
-    public logger: Logger,
-  ) {}
-
-  public static pushValueToDataStore(setData: SetDataFn, keyPath: string, deserializedValue: any,)  {
-
-    if (
-      typeof deserializedValue === "object" &&
-      !Buffer.isBuffer(deserializedValue) &&
-      !Array.isArray(deserializedValue)
-    ) {
-      const configDataMap: any = {};
-      buildFlatMap(deserializedValue, configDataMap, keyPath);
-  
-      const configDataMapKeys = Object.keys(configDataMap);
-  
-      for (const key of configDataMapKeys) {
-        setData(key, configDataMap[key]);
-      }
-    } else {
-  
-      setData(keyPath, deserializedValue);
-    }
   }
 }
 

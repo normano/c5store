@@ -1,12 +1,18 @@
 import fs from "fs-extra";
 import path from "path";
 
-import { SetDataFn, HydrateContext } from "./internal.js";
 import { C5ValueDeserializer, C5JSONValueDeserializer, C5YAMLValueDeserializer } from "./serialization.js";
+import { Logger } from "./telemetry.js";
+import { buildFlatMap } from "./util.js";
 
 export const CONFIG_KEY_KEYNAME = ".key";
 export const CONFIG_KEY_KEYPATH = ".keyPath";
 export const CONFIG_KEY_PROVIDER = ".provider";
+
+export type GetDataFn = (keyPath: string) => any;
+export type SetDataFn = (keyPath: string, value: any) => void;
+export type KeyExistsFn = (keyPath: string) => boolean;
+export type PrefixKeysFn = (keyPath: string) => string[];
 
 export interface C5ValueProvider {
 
@@ -139,6 +145,34 @@ export class C5FileValueProvider implements C5ValueProvider {
       }
 
       HydrateContext.pushValueToDataStore(setData, keyPath, deserializedValue,);
+    }
+  }
+}
+
+export class HydrateContext {
+
+  constructor(
+    public logger: Logger,
+  ) {}
+
+  public static pushValueToDataStore(setData: SetDataFn, keyPath: string, deserializedValue: any,)  {
+
+    if (
+      typeof deserializedValue === "object" &&
+      !Buffer.isBuffer(deserializedValue) &&
+      !Array.isArray(deserializedValue)
+    ) {
+      const configDataMap: any = {};
+      buildFlatMap(deserializedValue, configDataMap, keyPath);
+  
+      const configDataMapKeys = Object.keys(configDataMap);
+  
+      for (const key of configDataMapKeys) {
+        setData(key, configDataMap[key]);
+      }
+    } else {
+  
+      setData(keyPath, deserializedValue);
     }
   }
 }
