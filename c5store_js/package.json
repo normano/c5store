@@ -1,6 +1,6 @@
 {
   "name": "@excsn/c5store",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "All encompassing configuration store to meet all needs.",
   "author": "Norm O <normo.pub@gmail.com>",
   "license": "MPL-2.0",
