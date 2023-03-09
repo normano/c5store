@@ -306,25 +306,16 @@ impl C5StoreSubscriptions {
     self._change_listeners.write().insert(Box::from(key_path), listener);
   }
 
-  pub fn with_subscribers<SubscriberFn>(&self, key_path: &str, subscriber_fn: SubscriberFn)
-  where SubscriberFn: FnMut(&Box<ChangeListener>)
-  {
-
-    let rwlock = self._change_listeners.read();
-    let subscribers_option = rwlock.get_vec(key_path);
-
-    if subscribers_option.is_some() {
-
-      subscribers_option.unwrap().iter().for_each(subscriber_fn);
-    }
-  }
-
   pub fn notify_value_change(&self, notify_key_path: &str, key_path: &str, value: &C5DataValue) {
 
     let rwlock = self._change_listeners.read();
-    for change_listener in rwlock.get(notify_key_path) {
+    
+    if let Some(change_listeners) = rwlock.get_vec(notify_key_path) {
 
-      change_listener(notify_key_path, key_path, value);
+      for change_listener in change_listeners {
+
+        change_listener(notify_key_path, key_path, value);
+      }
     }
   }
 }

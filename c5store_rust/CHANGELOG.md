@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Added multiple C5DataValue TryInto and From data type support for (i|u)8-64. Using macros to generate this code.
+- Added C5DataValue ref TryInto and From for all types
+- C5DataValue::*Integer TryInto can now support conversion from base int or uint when appropriate. No more having to use i64 as the base type to convert to another one. Ideally i64 is used for negative numbers while u64 is used for 0 to u64::max.
+
+### Fixed
+- Fix notify_value_change so that it notifies all subscribers on a key.
+
 ## [0.2.3]
 
 ### Changed
