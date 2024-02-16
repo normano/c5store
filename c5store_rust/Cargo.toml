@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
 description = "Provides a unified store for configuration and secrets."
@@ -10,8 +10,8 @@ license = "MPL-2.0"
 
 [dependencies]
 base64 = "^0.13"
-curve25519-parser = { version = "^0"}
-ecies_25519 = { version = "^0.1" }
+curve25519-parser = { version = "^0" }
+ecies_25519 = { version = "^0" }
 log = "^0.4"
 maplit = "1.0.2"
 multimap = "^0.8"
