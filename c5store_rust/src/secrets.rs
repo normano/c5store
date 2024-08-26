@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use ecies_25519::{EciesX25519, StaticSecret};
 
@@ -79,8 +79,8 @@ impl SecretDecryptor for EciesX25519SecretDecryptor {
 }
 
 pub struct SecretKeyStore {
-  _secret_decryptors: HashMap<Box<str>, Box<dyn SecretDecryptor>>,
-  _keys: HashMap<Box<str>, Vec<u8>>,
+  _secret_decryptors: HashMap<String, Box<dyn SecretDecryptor>>,
+  _keys: HashMap<String, Vec<u8>>,
 }
 
 impl SecretKeyStore {
@@ -101,7 +101,7 @@ impl SecretKeyStore {
   }
 
   pub fn set_decryptor(&mut self, name: &str, decryptor: Box<dyn SecretDecryptor>) {
-    self._secret_decryptors.insert(Box::from(name), decryptor);
+    self._secret_decryptors.insert(name.to_string(), decryptor);
   }
 
   pub fn get_key(&self, name: &str) -> Option<&Vec<u8>> {
@@ -109,6 +109,6 @@ impl SecretKeyStore {
   }
 
   pub fn set_key(&mut self, name: &str, key: Vec<u8>) {
-    self._keys.insert(Box::from(name), key);
+    self._keys.insert(name.to_string(), key);
   }
 }

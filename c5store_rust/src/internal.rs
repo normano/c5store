@@ -31,9 +31,9 @@ impl <'a> C5StoreDataValueRef<'a> {
 pub (in crate) struct C5DataStore {
   _logger: Arc<dyn Logger>,
   _stats_recorder: Arc<dyn StatsRecorder>,
-  _secret_key_path_segment: Box<str>,
+  _secret_key_path_segment: String,
   _secret_key_store: Arc<SecretKeyStore>,
-  _value_hash_cache: Arc<RwLock<HashMap<Box<str>, Vec<u8>>>>,
+  _value_hash_cache: Arc<RwLock<HashMap<String, Vec<u8>>>>,
   _data: Arc<RwLock<SkipMap<NaturalOrderedString, C5DataValue>>>,
 }
 
@@ -41,13 +41,13 @@ impl C5DataStore {
   pub fn new(
     logger: Arc<dyn Logger>,
     stats_recorder: Arc<dyn StatsRecorder>,
-    secret_key_path_segment: Box<str>,
+    secret_key_path_segment: String,
     secret_key_store: Arc<SecretKeyStore>,
   ) -> C5DataStore {
     return C5DataStore{
       _logger: logger,
       _stats_recorder: stats_recorder,
-      _secret_key_path_segment: Box::from(format!(".{}", secret_key_path_segment).as_str()),
+      _secret_key_path_segment: format!(".{}", secret_key_path_segment),
       _secret_key_store: secret_key_store,
       _value_hash_cache: Arc::new(RwLock::new(HashMap::new())),
       _data: Arc::new(RwLock::new(SkipMap::new())),
@@ -59,9 +59,9 @@ impl C5DataStore {
 
     self._stats_recorder.record_counter_increment(
       hashmap!{
-        Box::from("group") => TagValue::String(Box::from("c5store")),
+        "group".to_string() => TagValue::String("c5store".to_string()),
       },
-      Box::from("get_attempts")
+      "get_attempts".to_string()
     );
     let natural_key_path = NaturalOrderedString::from(key);
     let rwlock = self._data.read();
@@ -76,9 +76,9 @@ impl C5DataStore {
 
     self._stats_recorder.record_counter_increment(
       hashmap!{
-        Box::from("group") => TagValue::String(Box::from("c5store")),
+        "group".to_string() => TagValue::String("c5store".to_string()),
       },
-      Box::from("get_attempts")
+      "get_attempts".to_string()
     );
     let natural_key_path = NaturalOrderedString::from(key);
     let rwlock = self._data.read();
@@ -99,9 +99,9 @@ impl C5DataStore {
 
     self._stats_recorder.record_counter_increment(
       hashmap!{
-        Box::from("group") => TagValue::String(Box::from("c5store")),
+        "group".to_string() => TagValue::String("c5store".to_string()),
       },
-      Box::from("set_attempts")
+      "set_attempts".to_string()
     );
 
     if key.ends_with(&*self._secret_key_path_segment) {
@@ -175,14 +175,14 @@ impl C5DataStore {
       }
     } else {
 
-      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock).insert(Box::from(key_path), hash_value);
+      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock).insert(key_path.to_string(), hash_value);
     }
 
     self._stats_recorder.record_counter_increment(
       hashmap!{
-        Box::from("group") => TagValue::String(Box::from("c5store")),
+        "group".to_string() => TagValue::String("c5store".to_string()),
       },
-      Box::from("set_secret_attempts")
+      "set_secret_attempts".to_string()
     );
 
     let decryptor_opt = self._secret_key_store.get_decryptor(&algo);
@@ -213,14 +213,14 @@ impl C5DataStore {
 
     self._stats_recorder.record_counter_increment(
       hashmap!{
-        Box::from("group") => TagValue::String(Box::from("c5store")),
+        "group".to_string() => TagValue::String("c5store".to_string()),
       },
-      Box::from("exists_attempts")
+      "exists_attempts".to_string()
     );
     return self._data.read().contains_key(&NaturalOrderedString::from(key));
   }
 
-  pub fn keys_with_prefix(&self, key_path_option: Option<&str>) -> Vec<Box<str>> {
+  pub fn keys_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
 
     return match key_path_option {
       None => {
@@ -249,7 +249,7 @@ impl C5DataStore {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
-struct NaturalOrderedString(Box<str>);
+struct NaturalOrderedString(String);
 
 impl Ord for NaturalOrderedString {
   fn cmp(&self, other: &Self) -> Ordering {
@@ -265,31 +265,31 @@ impl PartialOrd for NaturalOrderedString {
 
 impl From<&str> for NaturalOrderedString {
   fn from(value: &str) -> Self {
-    return NaturalOrderedString(Box::from(value));
+    return NaturalOrderedString(value.to_string());
   }
 }
 
 impl From<Box<str>> for NaturalOrderedString {
   fn from(value: Box<str>) -> Self {
-    return NaturalOrderedString(value);
+    return NaturalOrderedString(value.to_string());
   }
 }
 
 impl Into<Box<str>> for NaturalOrderedString {
   fn into(self) -> Box<str> {
-    return self.0;
+    return self.0.into_boxed_str();
   }
 }
 
 impl From<String> for NaturalOrderedString {
   fn from(value: String) -> Self {
-    return NaturalOrderedString(value.into_boxed_str());
+    return NaturalOrderedString(value);
   }
 }
 
 #[derive(Clone)]
 pub (in crate) struct C5StoreSubscriptions {
-  _change_listeners: Arc<RwLock<MultiMap<Box<str>, Box<ChangeListener>>>>,
+  _change_listeners: Arc<RwLock<MultiMap<String, Box<ChangeListener>>>>,
 }
 
 impl C5StoreSubscriptions {
@@ -303,7 +303,7 @@ impl C5StoreSubscriptions {
 impl C5StoreSubscriptions {
   pub fn add(&self, key_path: &str, listener: Box<ChangeListener>) {
 
-    self._change_listeners.write().insert(Box::from(key_path), listener);
+    self._change_listeners.write().insert(key_path.to_string(), listener);
   }
 
   pub fn notify_value_change(&self, notify_key_path: &str, key_path: &str, value: &C5DataValue) {

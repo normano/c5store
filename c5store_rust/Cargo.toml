@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
 description = "Provides a unified store for configuration and secrets."

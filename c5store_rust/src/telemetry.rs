@@ -1,10 +1,10 @@
-use std::{hash::Hash};
+use std::hash::Hash;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
 use log::{debug, error, info, warn};
-use num_rational::{BigRational, Rational32, Rational64};
+use num_rational::Rational32;
 
 pub trait Logger: Send + Sync {
 
@@ -35,28 +35,28 @@ impl Logger for ConsoleLogger {
   }
 }
 
-type StatsTags = HashMap<Box<str>, TagValue>;
+type StatsTags = HashMap<String, TagValue>;
 
 pub enum TagValue {
-  String(Box<str>),
-  TypedBytes(Box<str>, Vec<u8>), // (Data type, bytes)
+  String(String),
+  TypedBytes(String, Vec<u8>), // (Data type, bytes)
 }
 
 pub trait StatsRecorder: Send + Sync {
 
-  fn record_counter_increment(&self, tags: StatsTags, name: Box<str>);
-  fn record_timer(&self, tags: StatsTags, name: Box<str>, value: Duration);
-  fn record_gauge(&self, tags: StatsTags, name: Box<str>, value: GaugeValue);
+  fn record_counter_increment(&self, tags: StatsTags, name: String);
+  fn record_timer(&self, tags: StatsTags, name: String, value: Duration);
+  fn record_gauge(&self, tags: StatsTags, name: String, value: GaugeValue);
 }
 
 pub struct StatsRecorderStub {}
 
 impl StatsRecorder for StatsRecorderStub {
-  fn record_counter_increment(&self, _tags: StatsTags, _name: Box<str>) {}
+  fn record_counter_increment(&self, _tags: StatsTags, _name: String) {}
 
-  fn record_timer(&self, _tags: StatsTags, _name: Box<str>, _value: Duration) {}
+  fn record_timer(&self, _tags: StatsTags, _name: String, _value: Duration) {}
 
-  fn record_gauge(&self, _tags: StatsTags, _name: Box<str>, _value: GaugeValue) {}
+  fn record_gauge(&self, _tags: StatsTags, _name: String, _value: GaugeValue) {}
 }
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Clone)]
@@ -71,7 +71,5 @@ pub enum GaugeValue {
   UInt64(u64),
   Int128(i128),
   UInt128(u128),
-  R32(Rational32),
-  R64(Rational64),
-  BRt(BigRational),
+  Ratio32(Rational32),
 }

@@ -65,7 +65,7 @@ pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
 pub type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
 
 pub struct SecretOptions {
-  pub secret_key_path_segment: Option<Box<str>>,
+  pub secret_key_path_segment: Option<String>,
   pub secret_keys_path: Option<PathBuf>,
   pub secret_key_store_configure_fn: Option<Box<SecretKeyStoreConfiguratorFn>>,
 }
@@ -73,7 +73,7 @@ pub struct SecretOptions {
 impl Default for SecretOptions {
   fn default() -> Self {
     return Self {
-      secret_key_path_segment: Some(Box::from(".c5encval")),
+      secret_key_path_segment: Some(".c5encval".to_string()),
       secret_keys_path: None,
       secret_key_store_configure_fn: None,
     };
@@ -102,7 +102,7 @@ struct ChangeNotifier {
   debounce_job_handle: Arc<Mutex<RefCell<Option<JobHandle>>>>,
   thread_pool: Arc<ScheduledThreadPool>,
   delay_period: Duration,
-  changed_key_paths: Arc<Mutex<RefCell<HashSet<Box<str>>>>>,
+  changed_key_paths: Arc<Mutex<RefCell<HashSet<String>>>>,
   _data_store: C5DataStore,
   _subscriptions: C5StoreSubscriptions,
 }
@@ -125,7 +125,7 @@ impl ChangeNotifier {
     let debounce_job_lock = self.debounce_job_handle.lock();
     let job_handle_borrow = debounce_job_lock.borrow();
 
-    self.changed_key_paths.clone().lock().get_mut().insert(Box::from(key));
+    self.changed_key_paths.clone().lock().get_mut().insert(key.to_string());
 
     if job_handle_borrow.is_none() {
 
@@ -139,7 +139,7 @@ impl ChangeNotifier {
         let mut job_handle_borrow = debounce_job_lock.borrow_mut();
         job_handle_borrow.take();
 
-        let mut deduped_saved_changed_keypath_map: HashsetMultiMap<Box<str>, Box<str>> = hashsetmultimap!();
+        let mut deduped_saved_changed_keypath_map: HashsetMultiMap<String, String> = hashsetmultimap!();
 
         let saved_changed_keypaths_lock = saved_changed_keypaths.lock();
         let saved_changed_keypaths = saved_changed_keypaths_lock.borrow();
@@ -163,7 +163,7 @@ impl ChangeNotifier {
 
             deduped_saved_changed_keypath_map.insert(
               saved_changed_keypath.clone(),
-              Box::from(key_ancestor_path.as_str())
+              key_ancestor_path.clone()
             );
           }
         }
@@ -210,7 +210,7 @@ pub trait C5Store {
   // Searches for all keypaths that relative to currentKeyPath + given keyPath
   // @return A list of Key Paths
   //
-  fn key_paths_with_prefix(&self, key_path: Option<&str>) -> Vec<Box<str>>;
+  fn key_paths_with_prefix(&self, key_path: Option<&str>) -> Vec<String>;
 
   //
   // @return null if root, prefixKey if branch
@@ -259,11 +259,11 @@ impl C5Store for C5StoreRoot {
   fn branch(&self, key_path: &str) -> C5StoreBranch {
     return C5StoreBranch {
       _root: self.clone(),
-      _key_path: Box::from(key_path),
+      _key_path: key_path.to_string(),
     };
   }
 
-  fn key_paths_with_prefix(&self, key_path: Option<&str>) -> Vec<Box<str>> {
+  fn key_paths_with_prefix(&self, key_path: Option<&str>) -> Vec<String> {
     return self._data_store.keys_with_prefix(key_path);
   }
 
@@ -275,13 +275,13 @@ impl C5Store for C5StoreRoot {
 #[derive(Clone)]
 pub struct C5StoreBranch {
   _root: C5StoreRoot,
-  _key_path: Box<str>,
+  _key_path: String,
 }
 
 impl C5StoreBranch {
-  fn _merge_key_path(&self, key_path: &str) -> Box<str> {
+  fn _merge_key_path(&self, key_path: &str) -> String {
 
-    return (self._key_path.to_string() + "." + key_path).into_boxed_str();
+    return self._key_path.to_string() + "." + key_path;
   }
 }
 
@@ -308,11 +308,11 @@ impl C5Store for C5StoreBranch {
   fn branch(&self, key_path: &str) -> C5StoreBranch {
     return C5StoreBranch {
       _root: self._root.clone(),
-      _key_path: Box::from(self._merge_key_path(key_path)),
+      _key_path: self._merge_key_path(key_path),
     };
   }
 
-  fn key_paths_with_prefix(&self, key_path_option: Option<&str>) -> Vec<Box<str>> {
+  fn key_paths_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
 
     return match key_path_option {
       Some(key_path) => {
@@ -330,7 +330,7 @@ impl C5Store for C5StoreBranch {
 }
 
 pub struct C5StoreMgr {
-  _value_providers: Arc<Mutex<HashMap<Box<str>, Box<dyn C5ValueProvider>>>>,
+  _value_providers: Arc<Mutex<HashMap<String, Box<dyn C5ValueProvider>>>>,
   _scheduled_thread_pool: ScheduledThreadPool,
   _scheduled_provider_job_handles: Vec<JobHandle>,
   _data_store: C5StoreRoot,
@@ -338,7 +338,7 @@ pub struct C5StoreMgr {
   _stats: Arc<dyn StatsRecorder>,
   _change_notifier: Arc<ChangeNotifier>,
   _set_data_fn: Arc<SetDataFn>,
-  _provided_data: MultiMap<Box<str>, C5DataValue>,
+  _provided_data: MultiMap<String, C5DataValue>,
 }
 
 impl C5StoreMgr {
@@ -348,7 +348,7 @@ impl C5StoreMgr {
     stats: Arc<dyn StatsRecorder>,
     change_notifier: Arc<ChangeNotifier>,
     set_data_fn: Arc<SetDataFn>,
-    provided_data: MultiMap<Box<str>, C5DataValue>,
+    provided_data: MultiMap<String, C5DataValue>,
   ) -> C5StoreMgr {
 
     return C5StoreMgr {
@@ -393,7 +393,7 @@ impl C5StoreMgr {
 
     value_provider.hydrate(&*self._set_data_fn, true, &hydrate_context);
 
-    self._value_providers.lock().insert(Box::from(name.clone()), Box::from(value_provider));
+    self._value_providers.lock().insert(name.to_string(), Box::from(value_provider));
 
     if refresh_period_sec > 0 {
       // logger.debug(format!("Will refresh {} Value Provider every {} seconds.", name, refresh_period_sec));
@@ -402,12 +402,12 @@ impl C5StoreMgr {
 
       let value_providers_clone = self._value_providers.clone();
       let set_data_fn = self._set_data_fn.clone();
-      let name_boxed = Box::from(name);
+      let name_clone = name.to_string();
       let job = move || {
 
         let value_providers = value_providers_clone.clone();
         let value_providers_lock = value_providers.lock();
-        let value_provider_result = value_providers_lock.get(&name_boxed);
+        let value_provider_result = value_providers_lock.get(&name_clone);
 
         if let Some(value_provider) = value_provider_result {
           value_provider.hydrate(&*set_data_fn, true, &hydrate_context);
@@ -515,7 +515,7 @@ pub fn create_c5store(
     }
   });
 
-  let mut provided_data: MultiMap<Box<str>, C5DataValue> = MultiMap::new();
+  let mut provided_data: MultiMap<String, C5DataValue> = MultiMap::new();
 
   read_config_data(config_file_paths, set_data_fn.clone(), &mut provided_data);
 
@@ -574,7 +574,7 @@ pub fn load_secret_key_files(
 pub fn read_config_data(
   config_file_paths: Vec<PathBuf>,
   set_data_fn: Arc<SetDataFn>,
-  provided_data: &mut MultiMap<Box<str>, C5DataValue>,
+  provided_data: &mut MultiMap<String, C5DataValue>,
 ) {
 
   let mut raw_config_data: HashMap<String, C5DataValue> = HashMap::new();
@@ -605,7 +605,7 @@ pub fn read_config_data(
 fn _take_provided_data(
   raw_config_data: &mut HashMap<String, C5DataValue>,
   config_data: &mut HashMap<String, C5DataValue>,
-  provided_data: &mut MultiMap<Box<str>, C5DataValue>,
+  provided_data: &mut MultiMap<String, C5DataValue>,
 ) {
 
   _take_provided_data_helper(raw_config_data, config_data, provided_data, String::new());
@@ -614,7 +614,7 @@ fn _take_provided_data(
 fn _take_provided_data_helper(
   raw_config_data: &mut HashMap<String, C5DataValue>,
   config_data: &mut HashMap<String, C5DataValue>,
-  provided_data: &mut MultiMap<Box<str>, C5DataValue>,
+  provided_data: &mut MultiMap<String, C5DataValue>,
   keypath: String,
 ) {
   let keys: Vec<String> = raw_config_data.keys().into_iter().cloned().collect();
@@ -644,7 +644,7 @@ fn _take_provided_data_helper(
         let provider_name_c5val = data_map.get(CONFIG_KEY_PROVIDER).unwrap();
 
         if let C5DataValue::String(provider_name) = provider_name_c5val {
-          provided_data.insert(provider_name.clone().into_boxed_str(), value.clone());
+          provided_data.insert(provider_name.clone(), value.clone());
         }
 
         raw_config_data.remove(&key);

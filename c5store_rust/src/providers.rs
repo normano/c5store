@@ -13,7 +13,7 @@ pub (in crate) const CONFIG_KEY_PROVIDER: &str = ".provider";
 
 pub enum C5RawValue {
   Bytes(Vec<u8>),
-  String(Box<str>),
+  String(String),
 }
 
 pub type C5Serializer = dyn Fn(C5DataValue) -> C5RawValue + Send + Sync;
@@ -29,9 +29,9 @@ pub trait C5ValueProvider: Send + Sync {
 }
 
 pub struct C5ValueProviderSchema {
-  pub value_provider: Box<str>,
-  pub value_key_path: Box<str>,
-  pub value_key: Box<str>,
+  pub value_provider: String,
+  pub value_key_path: String,
+  pub value_key: String,
 }
 
 impl C5ValueProviderSchema {
@@ -40,26 +40,26 @@ impl C5ValueProviderSchema {
     map: &HashMap<String, C5DataValue>
   ) -> Result<C5ValueProviderSchema, ()> {
 
-    let value_provider: Box<str>;
-    let value_key_path: Box<str>;
-    let value_key: Box<str>;
+    let value_provider: String;
+    let value_key_path: String;
+    let value_key: String;
 
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_PROVIDER).unwrap() {
-      value_provider = vpvalue.clone().into_boxed_str();
+      value_provider = vpvalue.clone();
     } else {
 
       return Err(());
     }
 
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_KEYPATH).unwrap() {
-      value_key_path = vpvalue.clone().into_boxed_str();
+      value_key_path = vpvalue.clone();
     } else {
 
       return Err(());
     }
 
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_KEYNAME).unwrap() {
-      value_key = vpvalue.clone().into_boxed_str()
+      value_key = vpvalue.clone()
     } else {
 
       return Err(());
@@ -75,9 +75,9 @@ impl C5ValueProviderSchema {
 
 pub struct C5FileValueProviderSchema {
   pub value_schema: C5ValueProviderSchema,
-  pub path: Box<str>,
-  pub encoding: Box<str>,
-  pub format: Box<str>,
+  pub path: String,
+  pub encoding: String,
+  pub format: String,
 }
 
 impl C5FileValueProviderSchema {
@@ -88,17 +88,17 @@ impl C5FileValueProviderSchema {
   ) -> C5FileValueProviderSchema {
     return C5FileValueProviderSchema {
       value_schema,
-      path: Box::from(path),
-      encoding: Box::from("utf8"),
-      format: Box::from("raw"),
+      path: path.to_string(),
+      encoding: "utf8".to_string(),
+      format: "raw".to_string(),
     };
   }
 }
 
 pub struct C5FileValueProvider {
-  _base_dir_path: Box<str>,
-  _key_data_map: HashMap<Box<str>, C5FileValueProviderSchema>,
-  _deserializer: HashMap<Box<str>, Box<C5ValueDeserializer>>,
+  _base_dir_path: String,
+  _key_data_map: HashMap<String, C5FileValueProviderSchema>,
+  _deserializer: HashMap<String, Box<C5ValueDeserializer>>,
 }
 
 impl C5FileValueProvider {
@@ -106,7 +106,7 @@ impl C5FileValueProvider {
   pub fn new(base_path: &str) -> C5FileValueProvider {
 
     return C5FileValueProvider {
-      _base_dir_path: Box::from(base_path),
+      _base_dir_path: base_path.to_string(),
       _key_data_map: HashMap::new(),
       _deserializer: HashMap::new(),
     }
@@ -126,7 +126,7 @@ impl C5FileValueProvider {
   where Deserializer: 'static + Fn(C5RawValue) -> C5DataValue + Send + Sync {
 
     self._deserializer.insert(
-      Box::from(format_name),
+      format_name.to_string(),
       Box::from(deserializer),
     );
   }
@@ -142,34 +142,34 @@ impl C5ValueProvider for C5FileValueProvider {
         //TODO: above result needs to be logged if it is an error
 
         let value_schema = value_schema_result.unwrap();
-        let path: Box<str>;
-        let encoding: Box<str>;
-        let format: Box<str>;
+        let path: String;
+        let encoding: String;
+        let format: String;
 
         if let C5DataValue::String(vpvalue) = map.get("path").unwrap() {
-          path = vpvalue.clone().into_boxed_str();
+          path = vpvalue.clone();
         } else {
           return;
         }
 
         if let Some(encoding_value) = map.get("encoding") {
           if let C5DataValue::String(vpvalue) = encoding_value {
-            encoding = vpvalue.clone().into_boxed_str();
+            encoding = vpvalue.clone();
           } else {
             return;
           }
         } else {
-          encoding = "utf8".to_string().into_boxed_str();
+          encoding = "utf8".to_string();
         }
 
         if let Some(format_value) = map.get("format") {
           if let C5DataValue::String(vpvalue) = format_value {
-            format = vpvalue.clone().into_boxed_str();
+            format = vpvalue.clone();
           } else {
             return;
           }
         } else {
-          format = "raw".to_string().into_boxed_str();
+          format = "raw".to_string();
         }
 
         let vp_data = C5FileValueProviderSchema {
