@@ -209,6 +209,7 @@ impl C5DataStore {
     return Some(decrypted_val_result.unwrap());
   }
 
+  /// Check if the exact key exists
   pub fn exists(&self, key: &str) -> bool {
 
     self._stats_recorder.record_counter_increment(
@@ -217,7 +218,35 @@ impl C5DataStore {
       },
       "exists_attempts".to_string()
     );
+    
     return self._data.read().contains_key(&NaturalOrderedString::from(key));
+  }
+
+  /// Checks if the key's prefix exist
+  pub fn prefix_key_exists(&self, key: &str) -> bool {
+    
+    self._stats_recorder.record_counter_increment(
+      hashmap!{
+        "group".to_string() => TagValue::String("c5store".to_string()),
+      },
+      "prefix_key_exists_attempts".to_string()
+    );
+
+    if self.exists(key) {
+      return true;
+    }
+
+    let natural_key_path = NaturalOrderedString::from(key);
+    let rwlock = self._data.read();
+
+    if let Some(lower_bound_key) = rwlock.lower_bound(Bound::Included(&natural_key_path)) {
+      if !(lower_bound_key.0).0.starts_with(&*key) {
+        return false;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   pub fn keys_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
@@ -229,7 +258,7 @@ impl C5DataStore {
       Some(key_path) => {
         let mut result = vec![];
 
-        let prefix_key = (key_path.to_string() + ".").into_boxed_str();
+        let prefix_key = key_path.to_string() + ".";
         let natural_key_path = NaturalOrderedString::from(key_path);
         let rwlock = self._data.read();
         let range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);

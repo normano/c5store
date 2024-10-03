@@ -196,7 +196,12 @@ pub trait C5Store {
 
   fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef>;
 
+  fn get_into<Val>(&self, key_path: &str) -> Option<Val>
+  where C5DataValue: TryInto<Val, Error = ()>;
+
   fn exists(&self, key_path: &str) -> bool;
+
+  fn path_exists(&self, key: &str) -> bool;
 
   //
   // Listens to changes to the given keyPath. keyPath can be any the entire path or ancestors.
@@ -241,6 +246,11 @@ impl C5Store for C5StoreRoot {
     return self._data_store.get_data(key_path);
   }
 
+  fn get_into<Val>(&self, key_path: &str) -> Option<Val>
+  where C5DataValue: TryInto<Val, Error = ()> {
+    return self._data_store.get_data(key_path).map(|val| val.try_into().unwrap());
+  }
+
   fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef> {
 
     return self._data_store.get_data_ref(key_path);
@@ -249,6 +259,11 @@ impl C5Store for C5StoreRoot {
   fn exists(&self, key_path: &str) -> bool {
 
     return self._data_store.exists(key_path);
+  }
+
+  fn path_exists(&self, key_path: &str) -> bool {
+
+    return self._data_store.prefix_key_exists(key_path);
   }
 
   fn subscribe(&self, key_path: &str, listener: Box<ChangeListener>) {
@@ -291,6 +306,11 @@ impl C5Store for C5StoreBranch {
     return self._root.get(&self._merge_key_path(key_path));
   }
 
+  fn get_into<Val>(&self, key_path: &str) -> Option<Val>
+  where C5DataValue: TryInto<Val, Error = ()> {
+    return self._root.get(&self._merge_key_path(key_path)).map(|val| val.try_into().unwrap());
+  }
+
   fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef> {
 
     return self._root.get_ref(&self._merge_key_path(key_path));
@@ -299,6 +319,11 @@ impl C5Store for C5StoreBranch {
   fn exists(&self, key_path: &str) -> bool {
 
     return self._root.exists(&self._merge_key_path(key_path));
+  }
+
+  fn path_exists(&self, key_path: &str) -> bool {
+
+    return self._root.path_exists(&self._merge_key_path(key_path));
   }
 
   fn subscribe(&self, key_path: &str, listener: Box<ChangeListener>) {
@@ -719,6 +744,17 @@ mod tests {
   use crate::value::C5DataValue;
 
   #[test]
+  fn test_config_contains_bill_bar_existence() {
+    let (c5store, _c5store_mgr) = _create_c5store();
+
+    assert_eq!(c5store.exists("bill.barr"), true);
+    assert_eq!(c5store.exists("bill"), false);
+    assert_eq!(c5store.path_exists("bill.barr"), true);
+    assert_eq!(c5store.path_exists("bill.barr."), false);
+    assert_eq!(c5store.path_exists("bill"), true);
+  }
+
+  #[test]
   fn test_config_contains_bill_bar() {
     let (c5store, _c5store_mgr) = _create_c5store();
 
@@ -729,7 +765,8 @@ mod tests {
   fn test_config_contains_example_test_and() {
     let (c5store, _c5store_mgr) = _create_c5store();
 
-    assert_eq!(c5store.get("example.test.and").unwrap(), C5DataValue::Integer(1));
+    assert_eq!(c5store.get("example.test.and").unwrap(), C5DataValue::UInteger(1));
+    assert_eq!(c5store.get_into::<u64>("example.test.and").unwrap(), 1u64);
   }
 
   #[test]

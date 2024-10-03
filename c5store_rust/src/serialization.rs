@@ -53,6 +53,7 @@ pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
 
   return match raw_value.clone() {
     serde_yaml::Value::Null => C5DataValue::Null,
+    serde_yaml::Value::Tagged(_) => C5DataValue::Null, // Not supported
     serde_yaml::Value::Bool(value) => C5DataValue::Boolean(value),
     serde_yaml::Value::String(value) => C5DataValue::String(value),
     serde_yaml::Value::Number(value) => {
