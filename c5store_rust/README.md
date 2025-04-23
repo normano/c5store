@@ -1,85 +1,118 @@
-
 # C5Store for Rust
 
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 <!-- Add other badges here if you have them, e.g., Crates.io version, Build Status -->
 
-C5Store is a Rust library providing a **unified store for configuration and secrets**. It aims to be a single point of access for your application's configuration needs, consolidating values from various sources (like YAML files), handling secrets securely via built-in decryption, and allowing dynamic loading through providers.
+C5Store is a Rust library providing a **unified store for configuration and secrets**. It aims to be a single point of access for your application's configuration needs, consolidating values from various sources (like YAML and TOML files or directories), handling environment variable overrides, managing secrets securely via built-in decryption, and allowing dynamic loading through providers.
 
-The core idea is to simplify configuration management in complex applications by offering a hierarchical, type-aware, and extensible configuration layer.
+The core idea is to simplify configuration management in complex applications by offering a hierarchical, type-aware, extensible, and environment-aware configuration layer.
 
 ## Key Features
 
 *   **Unified Access:** Retrieve configuration values using simple dot-notation key paths (e.g., `database.connection.pool_size`).
-*   **Type-Safe Retrieval:** Get values converted directly into expected Rust types using `get_into::<T>()`.
-*   **Configuration Loading & Merging:** Load configuration from multiple YAML files, merging them intelligently (later files override earlier ones).
-*   **Integrated Secrets Management:**
-    *   Transparently decrypt secrets defined within configuration files.
+*   **Multiple Sources & Merging:** Load configuration from YAML and TOML files, or entire directories containing such files. Configuration is intelligently merged based on load order.
+*   **Environment Variable Overrides:** Seamlessly override any configuration value using environment variables (e.g., `C5_DATABASE__HOST=...`).
+*   **Type-Safe Retrieval:** Get values converted directly into expected Rust types using `get_into::<T>()`, now returning a `Result` for robust error handling.
+*   **Direct Struct Deserialization:** Deserialize entire configuration branches directly into your custom Rust structs using `get_into_struct::<T>()`.
+*   **Integrated Secrets Management (Optional Feature):**
+    *   Transparently decrypt secrets defined within configuration files using the `.c5encval` key.
     *   Supports pluggable decryption algorithms (includes `base64` and `ecies_x25519`).
-    *   Securely load decryption keys (e.g., from PEM files).
-*   **Value Providers:** Defer loading of specific configuration sections to external sources (e.g., files, environment variables, remote services) using a provider system. Includes a built-in `C5FileValueProvider`.
+    *   Securely load decryption keys from files (including `.pem`) or environment variables.
+*   **Value Providers:** Defer loading of specific configuration sections to external sources (e.g., files) using a provider system. Includes a built-in `C5FileValueProvider`.
 *   **Periodic Refresh:** Value providers can be configured to automatically refresh their data at specified intervals.
 *   **Change Notifications:** Subscribe to changes in configuration values at specific key paths or their ancestors. Notifications are debounced to prevent flooding.
 *   **Hierarchical Structure:** Access nested configuration values easily and create "branches" for context-specific views of the configuration.
+*   **`.env` File Support (Optional Feature):** Load environment variables from `.env` files at startup.
 *   **Extensible:** Designed with traits for custom value providers and secret decryptors.
 *   **Telemetry Hooks:** Basic interfaces for integrating custom logging and statistics recording.
 
 ## Getting Started
 
-1.  **Add Dependency:** Add `c5store` to your `Cargo.toml`:
+1.  **Add Dependency:** Add `c5store` to your `Cargo.toml`. Enable optional features as needed:
 
     ```toml
     [dependencies]
-    c5store = "0.2.7" # Use the latest desired version
-    # Other necessary dependencies like serde, serde_yaml, etc.
+    # Base library
+    c5store = "0.3.0" # Use v0.3.0+ for new features/error handling
+
+    # Example enabling .env file support (optional)
+    # c5store = { version = "0.3.0", features = ["dotenv"] }
+
+    # Example disabling default secrets support (optional, smaller binary)
+    # c5store = { version = "0.3.0", default-features = false }
+
+    # Other necessary dependencies like serde, etc.
+    serde = { version = "1", features = ["derive"] }
     ```
 
 2.  **Basic Usage:**
 
     ```rust
-    use c5store::{create_c5store, C5Store, C5StoreOptions};
+    use c5store::{create_c5store, C5Store, C5StoreOptions, ConfigError}; // Import ConfigError
     use std::path::PathBuf;
+    use serde::Deserialize; // Needed for get_into_struct
 
-    fn main() {
-        // 1. Define configuration file paths
-        //    Paths are loaded and merged in the order provided.
+    #[derive(Deserialize, Debug)] // Example struct for deserialization
+    struct ServiceConfig {
+        name: String,
+        port: u16,
+    }
+
+    fn main() -> Result<(), Box<dyn std::error::Error>> { // Main can return Result now
+        // 1. Define configuration paths (can include files and directories)
         let config_paths = vec![
             PathBuf::from("config/common.yaml"),
-            PathBuf::from("config/environment.yaml"), // e.g., development.yaml
-            PathBuf::from("config/local.yaml"),      // Local overrides
+            PathBuf::from("config/defaults.toml"),
+            PathBuf::from("config/environment_specific/"), // Load all supported files in this dir
+            PathBuf::from("config/local.yaml"),      // Local file overrides
         ];
 
-        // 2. (Optional) Configure options (e.g., secrets)
-        let options = C5StoreOptions::default(); // Use defaults or customize
+        // 2. (Optional) Configure options
+        let mut options = C5StoreOptions::default();
+        // Example: Enable loading .env file if 'dotenv' feature is enabled
+        // #[cfg(feature = "dotenv")]
+        // {
+        //     options.dotenv_path = Some(PathBuf::from(".env.local"));
+        // }
 
-        // 3. Create the store
-        //    `create_c5store` returns the store interface and a manager
-        //    for handling providers.
-        let (store, mut store_mgr) = create_c5store(config_paths, Some(options));
+        // 3. Create the store (now returns Result)
+        let (store, mut store_mgr) = create_c5store(config_paths, Some(options))?; // Use '?' operator
 
         // 4. Retrieve values
         if let Some(db_host) = store.get("database.host") {
             println!("Database Host (C5DataValue): {:?}", db_host);
         }
 
-        // Get directly as a specific type
-        let pool_size: Option<u64> = store.get_into("database.pool_size");
-        println!("Pool Size (u64): {:?}", pool_size.unwrap_or(10));
+        // Get directly as a specific type (now returns Result)
+        match store.get_into::<u64>("database.pool_size") {
+            Ok(pool_size) => println!("Pool Size (u64): {}", pool_size),
+            Err(ConfigError::KeyNotFound(_)) => println!("Pool Size: Using default (e.g., 10)"),
+            Err(e) => println!("Error getting pool size: {}", e), // Handle other errors (e.g., TypeMismatch)
+        }
+
+        // Deserialize into a struct
+        match store.get_into_struct::<ServiceConfig>("service") {
+             Ok(service_config) => println!("Service Config: {:?}", service_config),
+             Err(e) => println!("Error getting service config: {}", e),
+        }
+
 
         // Check existence
         if store.exists("database.user") {
             println!("Database user is configured.");
         }
 
-        // Check if a path prefix exists (e.g., if 'database' or any subkey exists)
+        // Check if a path prefix exists
         if store.path_exists("database") {
             println!("Database configuration section exists.");
         }
 
         // Access a branch
         let db_config = store.branch("database");
-        let password: Option<String> = db_config.get_into("password"); // Relative path
-        println!("Password from branch: {:?}", password);
+        match db_config.get_into::<String>("password") { // Relative path, returns Result
+            Ok(password) => println!("Password from branch retrieved."), // Don't print the actual password!
+            Err(_) => println!("Password not found or couldn't be read as string."),
+        }
 
         // (See below for Value Provider registration with store_mgr)
 
@@ -88,18 +121,21 @@ The core idea is to simplify configuration management in complex applications by
 
         // The store_mgr goes out of scope here, stopping provider refreshes.
         // Keep it alive if providers need to refresh.
+        Ok(())
     }
     ```
 
-## Configuration Files
+## Configuration Files & Directories
 
-C5Store primarily loads configuration from YAML files.
+C5Store loads configuration from specified paths in the `create_c5store` call. These paths can be:
 
-*   Files are loaded in the order specified in the `create_c5store` call.
-*   Values from later files **override** values from earlier files for the same key path.
-*   Maps (objects) are merged recursively. Other types (strings, numbers, arrays) are replaced entirely.
+*   **YAML files** (`.yaml`, `.yml`)
+*   **TOML files** (`.toml`)
+*   **Directories:** All files within the directory with supported extensions (`.yaml`, `.yml`, `.toml`) will be loaded and merged **alphabetically**.
 
-**Example (`common.yaml`):**
+Configuration sources are merged in the order they are processed (files listed explicitly first, then files within directories alphabetically). Values from later sources **override** values from earlier sources for the same key path. Maps (objects/tables) are merged recursively; other types are replaced entirely.
+
+**Example (`config/common.yaml`):**
 
 ```yaml
 service:
@@ -110,213 +146,161 @@ database:
   pool_size: 50
 ```
 
-**Example (`local.yaml`):**
+**Example (`config/local.toml`):**
 
-```yaml
+```toml
 # Overrides common.yaml values
-service:
-  port: 9090 # Overrides port 8080
-database:
-  host: localhost # Overrides prod host
-  user: dev_user # Adds a new key
-# Note: service.name and database.pool_size are inherited from common.yaml
+# Assumes local.toml is processed after common.yaml
+service.port = 9090 # Overrides port 8080
+
+[database]
+host = "localhost" # Overrides prod host
+user = "dev_user" # Adds a new key
+
+# service.name and database.pool_size are inherited
 ```
 
-## Secrets Management
+## Environment Variables & Loading Priority
 
-Secrets are defined using a special `.c5encval` key within your YAML configuration.
+C5Store supports overriding configuration values using environment variables after all files have been loaded and merged.
+
+*   **Prefix:** Variables starting with `C5_` (by default, can be configured later if needed) are processed.
+*   **Separator:** Double underscore (`__`) is used to denote nesting levels (e.g., `C5_DATABASE__HOST` maps to `database.host`).
+*   **Case:** The key derived from the environment variable is converted to lowercase (e.g., `C5_SERVICE__NAME` becomes `service.name`).
+*   **Value:** Environment variable values are always treated as **strings**. Use `get_into` or `get_into_struct` to convert them to the desired type.
+
+**Loading Priority (Highest to Lowest):**
+
+1.  **Environment Variables** (e.g., `C5_...`)
+2.  **Configuration Files/Directories** (processed in the order specified/discovered, with later files/directories overriding earlier ones).
+3.  **(Future)** Default values set programmatically.
+
+## Optional Features (`dotenv`, `secrets`)
+
+C5Store uses Cargo features to enable optional functionality, keeping the core library lean if certain features aren't needed.
+
+*   **`dotenv`**:
+    *   Enables loading environment variables from a `.env` file at startup.
+    *   Requires the `dotenvy` crate.
+    *   Enable using `features = ["dotenv"]` in `Cargo.toml`.
+    *   Specify the path to the `.env` file via `C5StoreOptions::dotenv_path`.
+    *   `.env` files are loaded *before* process environment variables are read, allowing process variables to override `.env` variables.
+*   **`secrets`**:
+    *   Enables all secrets management functionality (loading `.c5encval`, `SecretOptions`, `SecretKeyStore`, decryptors).
+    *   Requires crypto dependencies (`ecies_25519`, `curve25519-parser`, `sha2`).
+    *   **Enabled by default.**
+    *   Disable using `default-features = false` in `Cargo.toml` if secrets are not needed, resulting in a smaller binary.
+
+```toml
+[dependencies]
+# Minimal - no .env, no secrets
+# c5store = { version = "0.3.0", default-features = false }
+
+# Default - secrets enabled
+# c5store = "0.3.0"
+
+# Secrets and .env support
+# c5store = { version = "0.3.0", features = ["dotenv"] }
+```
+
+## Secrets Management (`secrets` feature)
+
+*(This section requires the `secrets` feature, which is enabled by default).*
+
+Secrets are defined using a special `.c5encval` key within your YAML/TOML configuration.
 
 **Structure:**
 
 ```yaml
+# YAML Example
 some_secret_key:
   .c5encval: ["<algorithm>", "<key_name>", "<base64_encrypted_data>"]
+
+# TOML Example (requires inline table or separate table)
+# [some_secret_key]
+# ".c5encval" = ["<algorithm>", "<key_name>", "<base64_encrypted_data>"]
 ```
 
-*   **`<algorithm>`:** The name of the registered `SecretDecryptor` (e.g., `"base64"`, `"ecies_x25519"`).
-*   **`<key_name>`:** The name used to look up the decryption key in the `SecretKeyStore` (e.g., `"service_api_key"`).
+*   **`<algorithm>`:** Name of registered `SecretDecryptor` (e.g., `"base64"`, `"ecies_x25519"`).
+*   **`<key_name>`:** Name used to look up the decryption key in the `SecretKeyStore`.
 *   **`<base64_encrypted_data>`:** The secret value, encrypted and then Base64 encoded.
 
-**Example (`secrets.yaml`):**
+**Configuration (`SecretOptions`):**
 
-```yaml
-api_credentials:
-  token:
-    # This value will be decrypted using the 'ecies_x25519' algorithm
-    # with the key named 'api_token_key'
-    .c5encval: ["ecies_x25519", "api_token_key", "iQv4jO...VagBFPI="]
-  simple_secret:
-    # This value will be decoded using the 'base64' algorithm (key name often ignored)
-    .c5encval: ["base64", "ignored", "YWJjZA=="] # Decodes to "abcd"
-```
-
-**Configuration:**
-
-You configure secrets handling via `C5StoreOptions` and `SecretOptions`:
+Configure secrets via the `secret_opts` field in `C5StoreOptions`.
 
 ```rust
 use c5store::{C5StoreOptions, SecretOptions, create_c5store};
+#[cfg(feature = "secrets")] // Only if using secrets explicitly
 use c5store::secrets::{SecretKeyStore, Base64SecretDecryptor, EciesX25519SecretDecryptor};
-use ecies_25519::EciesX25519; // From the ecies_25519 crate
+#[cfg(feature = "secrets")]
+use ecies_25519::EciesX25519;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-// ... in your setup code ...
+// ... inside setup code ...
 
 let mut options = C5StoreOptions::default();
 
-// Configure Secret Options
-options.secret_opts = SecretOptions {
-    // Optional: Path to a directory containing decryption key files.
-    // - '.pem' files assumed to be OpenSSL X25519 private keys.
-    // - Other files treated as raw key bytes.
-    // - Filename (without extension) becomes the key_name.
-    secret_keys_path: Some(PathBuf::from("path/to/your/secret_keys")),
+#[cfg(feature = "secrets")] // Gate configuration if secrets might be disabled
+{
+    options.secret_opts = SecretOptions {
+        // Path to directory containing decryption key files (e.g., .pem or raw bytes).
+        // Filename (without extension) becomes the key_name.
+        secret_keys_path: Some(PathBuf::from("path/to/your/secret_keys")),
 
-    // Optional: Override the special key name used to identify secrets.
-    secret_key_path_segment: Some(".c5encval".to_string()), // Default
+        // Override the special key identifying secrets.
+        secret_key_path_segment: Some(".c5encval".to_string()), // Default
 
-    // Optional: Programmatically configure the SecretKeyStore
-    secret_key_store_configure_fn: Some(Box::new(|key_store: &mut SecretKeyStore| {
-        // Register standard decryptors
-        key_store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
-        key_store.set_decryptor(
-            "ecies_x25519",
-            Box::new(EciesX25519SecretDecryptor::new(EciesX25519::new()))
-        );
+        // Programmatically configure the SecretKeyStore.
+        secret_key_store_configure_fn: Some(Box::new(|key_store: &mut SecretKeyStore| {
+            // Register standard decryptors if needed (built-ins might be added automatically later)
+            key_store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+            key_store.set_decryptor(
+                "ecies_x25519",
+                Box::new(EciesX25519SecretDecryptor::new(EciesX25519::new()))
+            );
+            // key_store.set_key("manual_key", vec![...]);
+        })),
 
-        // You could also manually add keys here:
-        // key_store.set_key("manual_key_name", vec![...bytes...]);
-    })),
-};
+        // --- New in 0.3.0 ---
+        // Enable loading keys from environment variables.
+        load_secret_keys_from_env: true,
+        // Prefix for environment variables holding keys (e.g., C5_SECRETKEY_MYAPIKEY).
+        // Value should be base64 encoded key bytes.
+        secret_key_env_prefix: Some("C5_SECRETKEY_".to_string()), // Default prefix
+    };
+}
 
 let config_paths = vec![/* ... */ PathBuf::from("secrets.yaml")];
-let (store, mut store_mgr) = create_c5store(config_paths, Some(options));
+let (store, mut store_mgr) = create_c5store(config_paths, Some(options))?;
 
-// Retrieving the secret automatically decrypts it
-let api_token: Option<Vec<u8>> = store.get_into("api_credentials.token");
-let simple: Option<Vec<u8>> = store.get_into("api_credentials.simple_secret");
-
-println!("Decrypted API Token: {:?}", api_token); // Should be the raw bytes
-println!("Decoded Simple Secret: {:?}", simple); // Should be b"abcd"
+// Retrieving the secret automatically attempts decryption if secrets feature enabled
+match store.get_into::<Vec<u8>>("api_credentials.token") { // Use get_into for Vec<u8>
+    Ok(token_bytes) => println!("Decrypted API Token retrieved."),
+    Err(e) => println!("Failed to get/decrypt API token: {}", e),
+}
 ```
 
 ## Value Providers
 
-Value providers allow parts of your configuration to be loaded dynamically from external sources. You mark a section in your YAML to be handled by a provider using the `.provider` key.
+*(Functionality unchanged from previous version, see earlier examples)*
 
-**Example (`config/providers.yaml`):**
-
-```yaml
-external_data:
-  # This whole 'file_content' section will be replaced by data
-  # loaded by the 'resources' provider.
-  file_content:
-    .provider: resources # Name of the provider to use
-    path: "data/my_external_config.json" # Provider-specific config: file path
-    format: "json" # Provider-specific config: file format
-  more_stuff:
-    .provider: resources
-    path: "secrets/raw_binary_data"
-    # format: "raw" (default if omitted)
-```
-
-**Configuration & Usage:**
-
-You need to register providers with the `C5StoreMgr` returned by `create_c5store`.
-
-```rust
-use c5store::{create_c5store, C5StoreOptions, C5Store};
-use c5store::providers::C5FileValueProvider;
-use std::path::PathBuf;
-use std::time::Duration; // Needed if keeping mgr alive for refreshes
-
-fn main() {
-    let config_paths = vec![
-        PathBuf::from("config/common.yaml"),
-        PathBuf::from("config/providers.yaml"), // Contains provider definitions
-    ];
-    let options = C5StoreOptions::default();
-
-    let (store, mut store_mgr) = create_c5store(config_paths, Some(options));
-
-    // Register the 'resources' provider (must match the name in YAML)
-    // C5FileValueProvider loads files relative to the provided base path.
-    let file_provider_base_path = "path/to/your/resource/files";
-    store_mgr.set_value_provider(
-        "resources", // Name matching '.provider' in YAML
-        C5FileValueProvider::default(file_provider_base_path), // The provider instance
-        60 // Refresh interval in seconds (0 for no refresh)
-    );
-
-    // Now, values defined by the provider should be available:
-    // Assuming 'data/my_external_config.json' contained {"key": "value"}
-    let external_value: Option<String> = store.get_into("external_data.file_content.key");
-    println!("External JSON Value: {:?}", external_value);
-
-    // Assuming 'secrets/raw_binary_data' contained raw bytes
-    let raw_data: Option<Vec<u8>> = store.get_into("external_data.more_stuff");
-    println!("External Raw Data Length: {:?}", raw_data.map(|d| d.len()));
-
-    // Keep store_mgr alive if you need providers to refresh automatically.
-    // For example, run your main application logic here.
-    // std::thread::sleep(Duration::from_secs(300)); // Example: Keep alive
-}
-
-```
+Value providers allow parts of your configuration to be loaded dynamically from external sources. Mark a section in YAML/TOML with `.provider`. Register providers using `C5StoreMgr::set_value_provider`.
 
 ## Change Notifications
 
-Subscribe to changes on specific key paths. Listeners are called after a short debounce period when a value at or below the subscribed path changes.
+*(Functionality unchanged from previous version, see earlier examples)*
 
-```rust
-use c5store::{C5Store, C5DataValue};
-use std::sync::{Arc, Mutex};
-
-// ... inside your setup where 'store' is available ...
-
-let changed_ports = Arc::new(Mutex::new(Vec::new()));
-let changed_ports_clone = changed_ports.clone();
-
-// Subscribe to changes specifically on 'service.port'
-store.subscribe("service.port", Box::new(move |notify_key, changed_key, new_value| {
-    println!(
-        "Listener notified via '{}': Key '{}' changed to {:?}",
-        notify_key, // The key path this listener was registered for ("service.port")
-        changed_key, // The exact key path that changed ("service.port")
-        new_value
-    );
-    if let C5DataValue::UInteger(port) = new_value {
-        changed_ports_clone.lock().unwrap().push(*port);
-    }
-}));
-
-// Subscribe to any change within the 'database' section
-store.subscribe("database", Box::new(|notify_key, changed_key, new_value| {
-     println!(
-        "Listener notified via '{}': Key '{}' changed to {:?}",
-        notify_key, // "database"
-        changed_key, // e.g., "database.host" or "database.pool_size"
-        new_value
-    );
-    // React to any change under 'database'
-}));
-
-// Later, if something modifies "service.port" (e.g., a provider refresh
-// or direct modification if the API allowed it), the first listener
-// would be called after the debounce period. If "database.host" changed,
-// the second listener would be called.
-
-```
+Subscribe to changes using `C5Store::subscribe`. Listeners are called after a debounce period.
 
 ## License
 
-This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the [LICENSE](LICENSE) file for details (or refer to standard MPL-2.0 text if the file isn't present).
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to open an issue to discuss bugs or feature requests, or submit a pull request.
+Contributions welcome! Please open issues or PRs.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes to this project.
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes. (Remember to update this file!)

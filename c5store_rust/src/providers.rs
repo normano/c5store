@@ -258,6 +258,6 @@ mod tests {
   fn _create_c5store() -> (impl C5Store, C5StoreMgr) {
     let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
 
-    return create_c5store(config_file_paths, None);
+    return create_c5store(config_file_paths, None).expect("Test store creation failed");
   }
 }

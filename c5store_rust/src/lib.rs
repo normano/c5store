@@ -1,3 +1,5 @@
+mod config_source;
+mod core;
 mod data;
 pub mod error;
 mod internal;
@@ -12,7 +14,7 @@ pub mod value;
 pub mod util;
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::{env, fs};
 use std::fs::read_dir;
@@ -20,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use config_source::ConfigSource;
 use curve25519_parser::parse_openssl_25519_privkey;
 #[cfg(feature = "dotenv")]
 use dotenvy;
@@ -76,6 +79,8 @@ impl HydrateContext {
 
 // params: notify key path, key path, value
 pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
+// params: notify key path, key path, new value, old value (Option)
+pub type DetailedChangeListener = dyn Fn(&str, &str, &C5DataValue, Option<&C5DataValue>) -> () + Send + Sync;
 pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
 #[cfg(feature = "secrets")]
 pub type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
@@ -127,11 +132,17 @@ impl Default for C5StoreOptions {
   }
 }
 
+/// Define a struct to hold pending change info
+struct PendingChange {
+  old_value: Option<C5DataValue>,
+  new_value: C5DataValue,
+}
+
 struct ChangeNotifier {
   debounce_job_handle: Arc<Mutex<RefCell<Option<JobHandle>>>>,
   thread_pool: Arc<ScheduledThreadPool>,
   delay_period: Duration,
-  changed_key_paths: Arc<Mutex<RefCell<HashSet<String>>>>,
+  pending_changes: Arc<Mutex<HashMap<String, PendingChange>>>, // Key: changed_key_path
   _data_store: C5DataStore,
   _subscriptions: C5StoreSubscriptions,
 }
@@ -148,71 +159,70 @@ impl ChangeNotifier {
         .build()
       ),
       delay_period,
-      changed_key_paths: Arc::new(Mutex::new(RefCell::new(HashSet::new()))),
+      pending_changes: Arc::new(Mutex::new(HashMap::new())),
       _data_store: data_store,
       _subscriptions: subscriptions,
     };
   }
 
-  pub fn notify_changed(&self, key: &str) {
+  pub fn notify_changed(
+    &self,
+    key: &str,
+    old_value: Option<C5DataValue>, // Pass owned Option<C5DataValue>
+    new_value: C5DataValue,         // Pass owned C5DataValue
+  ) {
 
     let debounce_job_lock = self.debounce_job_handle.lock();
-    let job_handle_borrow = debounce_job_lock.borrow();
 
-    self.changed_key_paths.clone().lock().get_mut().insert(key.to_string());
+    self.pending_changes.lock().insert(
+      key.to_string(),
+      PendingChange { old_value, new_value }
+    );
 
-    if job_handle_borrow.is_none() {
+    let should_schedule = debounce_job_lock.borrow().is_none();
+    if should_schedule {
 
       let debounce_mut = self.debounce_job_handle.clone();
-      let saved_changed_keypaths = self.changed_key_paths.clone();
-      let datastore = self._data_store.clone();
+      let pending_changes_arc = self.pending_changes.clone();
       let subscriptions = self._subscriptions.clone();
 
       let job = move || {
-        let debounce_job_lock = debounce_mut.lock();
-        let mut job_handle_borrow = debounce_job_lock.borrow_mut();
-        job_handle_borrow.take();
+        let changes_to_process: HashMap<String, PendingChange> =
+            pending_changes_arc.lock().drain().collect();
 
-        let mut deduped_saved_changed_keypath_map: HashsetMultiMap<String, String> = hashsetmultimap!();
-
-        let saved_changed_keypaths_lock = saved_changed_keypaths.lock();
-        let saved_changed_keypaths = saved_changed_keypaths_lock.borrow();
-        for saved_changed_keypath in saved_changed_keypaths.iter() {
-
-          deduped_saved_changed_keypath_map.insert(
-            saved_changed_keypath.clone(),
-            saved_changed_keypath.clone()
-          );
-
-          let split_saved_changed_keypath = saved_changed_keypath.split(".");
-          let mut key_ancestor_path = String::new();
-
-          for saved_changed_keypath_part in split_saved_changed_keypath {
-
-            if !key_ancestor_path.is_empty() {
-              key_ancestor_path = key_ancestor_path + ".";
+        let debounce_job_lock_inner = debounce_mut.lock();
+        let mut job_handle_borrow_inner = debounce_job_lock_inner.borrow_mut(); // Mutable borrow here is fine
+        job_handle_borrow_inner.take(); // Clear the handle
+        drop(job_handle_borrow_inner); // Release mutable borrow
+        drop(debounce_job_lock_inner); // Release lock
+        
+        // Process the collected changes
+        if !changes_to_process.is_empty() {
+          // Build map of ancestors to notify for each actual change
+          let mut notifications_to_send: HashsetMultiMap<String, String> = HashsetMultiMap::new();
+          for changed_key in changes_to_process.keys() {
+            notifications_to_send.insert(changed_key.clone(), changed_key.clone());
+            let mut key_ancestor_path = String::new();
+            for part in changed_key.split('.') {
+              if !key_ancestor_path.is_empty() { key_ancestor_path.push('.'); }
+              key_ancestor_path.push_str(part);
+              if &key_ancestor_path != changed_key { // Don't add self as ancestor for notification map
+                    notifications_to_send.insert(changed_key.clone(), key_ancestor_path.clone());
+              }
             }
-
-            key_ancestor_path = key_ancestor_path + saved_changed_keypath_part;
-
-            deduped_saved_changed_keypath_map.insert(
-              saved_changed_keypath.clone(),
-              key_ancestor_path.clone()
-            );
           }
-        }
 
-        for (saved_changed_keypath, deduped_changed_keypaths) in deduped_saved_changed_keypath_map.iter() {
-
-          let value_ref_cxt_option = datastore.get_data_ref(saved_changed_keypath);
-
-          if let Some(value_ref_cxt) = value_ref_cxt_option {
-            for deduped_changed_keypath in deduped_changed_keypaths {
-              subscriptions.notify_value_change(
-                deduped_changed_keypath,
-                saved_changed_keypath,
-                value_ref_cxt.value().unwrap(),
-              );
+          // Iterate through actual changed keys and their corresponding ancestor paths to notify
+          for (changed_key, notify_paths) in notifications_to_send.iter() {
+            if let Some(change_detail) = changes_to_process.get(changed_key) {
+              for notify_path in notify_paths {
+                subscriptions.notify_value_change(
+                  notify_path,
+                  changed_key,
+                  &change_detail.new_value, // Pass reference to stored new value
+                  change_detail.old_value.as_ref(), // Pass reference to stored Option<old value>
+                );
+              }
             }
           }
         }
@@ -246,6 +256,8 @@ pub trait C5Store {
   //
   fn subscribe(&self, key_path: &str, listener: Box<ChangeListener>);
 
+  fn subscribe_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>);
+
   fn branch(&self, key_path: &str) -> C5StoreBranch;
 
   //
@@ -258,6 +270,8 @@ pub trait C5Store {
   // @return null if root, prefixKey if branch
   //
   fn current_key_path(&self) -> &str;
+
+  fn get_source(&self, key_path: &str) -> Option<ConfigSource>;
 }
 
 #[derive(Clone)]
@@ -327,6 +341,10 @@ impl C5Store for C5StoreRoot {
     self._subscriptions.add(key_path, listener);
   }
 
+  fn subscribe_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
+    self._subscriptions.add_detailed(key_path, listener);
+  }
+
   fn branch(&self, key_path: &str) -> C5StoreBranch {
     return C5StoreBranch {
       _root: self.clone(),
@@ -340,6 +358,10 @@ impl C5Store for C5StoreRoot {
 
   fn current_key_path(&self) -> &str {
     return "";
+  }
+
+  fn get_source(&self, key_path: &str) -> Option<ConfigSource> {
+    return self._data_store.get_source_info(key_path);
   }
 }
 
@@ -394,6 +416,10 @@ impl C5Store for C5StoreBranch {
     self._root.subscribe(&self._merge_key_path(key_path), listener);
   }
 
+  fn subscribe_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
+    self._root.subscribe_detailed(&self._merge_key_path(key_path), listener);
+  }
+
   fn branch(&self, key_path: &str) -> C5StoreBranch {
     return C5StoreBranch {
       _root: self._root.clone(),
@@ -415,6 +441,10 @@ impl C5Store for C5StoreBranch {
 
   fn current_key_path(&self) -> &str {
     return &self._key_path;
+  }
+  
+  fn get_source(&self, key_path: &str) -> Option<ConfigSource> {
+    self._root.get_source(&self._merge_key_path(key_path))
   }
 }
 
@@ -616,31 +646,39 @@ pub fn create_c5store(
     subscriptions.clone(),
   ));
 
-  let set_fn_data_store_clone = data_store.clone();
-  let set_fn_change_notifier_clone = change_notifier.clone();
-  let set_data_fn = Arc::new(move |key: &str, value: C5DataValue| {
+  let set_data_fn = {
+    let data_store_clone = data_store.clone();
+    let change_notifier_clone = change_notifier.clone();
 
-    let data_store = set_fn_data_store_clone.clone();
-    let change_notifier = set_fn_change_notifier_clone.clone();
-    let already_exists = data_store.exists(key);
+    Arc::new(move |key: &str, value: C5DataValue| {
+      let data_store = data_store_clone.clone();
+      let change_notifier = change_notifier_clone.clone();
 
-    if !already_exists {
-      data_store.set_data(key, value);
-    } else {
+      // Check *before* setting the data
+      let old_value = data_store.get_data(key); // Get current value
 
-      let old_value = data_store.get_data(key);
+      let needs_update = match &old_value {
+        Some(ov) => ov != &value, // Update if value differs
+        None => true,             // Update if key didn't exist
+      };
 
-      if old_value.is_some() && old_value.as_ref().unwrap() != &value {
+      if needs_update {
+        // Set the data (which might decrypt secrets)
+        // Use internal setter to avoid infinite loop if set_data called set_data
+        // And pass a relevant source if possible (tricky here)
+        let source = ConfigSource::SetProgrammatically; // Or determine source if possible
+        let _prev_val = data_store._set_data_internal(key, value.clone(), source); // Use internal setter
 
-        data_store.set_data(key, value);
-        change_notifier.notify_changed(key);
+        // Notify AFTER setting the data, passing old and new values
+        change_notifier.notify_changed(key, old_value, value); // Pass owned values
       }
-    }
-  });
+    })
+   };
 
   let mut provided_data: MultiMap<String, C5DataValue> = MultiMap::new();
 
-  read_config_data(&config_file_paths, set_data_fn.clone(), &mut provided_data)?;
+  read_config_data(&config_file_paths, &data_store, &mut provided_data)?;
+  
   let c5store_mgr = C5StoreMgr::new(
     root.clone(),
     logger.clone(),
@@ -781,12 +819,13 @@ fn load_secret_keys_from_env(prefix: &str, secret_key_store: &mut SecretKeyStore
 /// Order of precedence: Environment Variables > Last File Read > First File Read.
 pub fn read_config_data(
   config_file_paths:  &[PathBuf],
-  set_data_fn: Arc<SetDataFn>,
+  data_store: &C5DataStore,
   provided_data: &mut MultiMap<String, C5DataValue>,
 ) -> Result<(), ConfigError> {
 
   let mut merged_config: HashMap<String, C5DataValue> = HashMap::new();
   let mut files_to_process: Vec<PathBuf> = Vec::new();
+  let mut file_source_map: HashMap<String, PathBuf> = HashMap::new();
 
   // --- 1. Expand directories and collect all individual files ---
   for path in config_file_paths {
@@ -860,79 +899,132 @@ pub fn read_config_data(
       // println!("[Config] Skipping file with unsupported extension: {:?}", file_path);
     }
   }
+  
+   // --- 2. Load and merge each eligible file (YAML or TOML) ---
+   for file_path in &files_to_process {
+    let extension = file_path.extension().and_then(OsStr::to_str);
+    type ParserFn = fn(&str, &PathBuf) -> Result<HashMap<String, C5DataValue>, ConfigError>;
+
+    let parser: Option<ParserFn> = match extension {
+      Some("yaml") | Some("yml") => Some(|content, path| {
+        serde_yaml::from_str::<HashMap<String, serde_yaml::Value>>(content)
+          .map_err(|e| ConfigError::YamlParseError { path: path.clone(), source: e })
+          .map(map_from_serde_yaml_valuemap) // Use helper from serialization.rs
+      }),
+      #[cfg(feature = "toml")]
+      Some("toml") => Some(|content, path| {
+        toml::from_str::<HashMap<String, toml::Value>>(content)
+          .map_err(|e| ConfigError::TomlParseError { path: path.clone(), source: e })
+          .map(map_from_toml_value_map) // Use helper from serialization.rs
+      }),
+      _ => None,
+    };
+
+    if let Some(parse_fn) = parser {
+      match fs::read_to_string(&file_path) {
+        Ok(content) => {
+          match parse_fn(&content, file_path) {
+            Ok(config_value) => {
+              println!("[Config] Merging config from file {:?}", file_path);
+              // Track file source for top-level keys before merging
+              for key in config_value.keys() {
+                  file_source_map.insert(key.clone(), file_path.clone());
+              }
+              _merge(&mut merged_config, &config_value);
+            }
+            Err(e) => return Err(e),
+          }
+        }
+        Err(e) => {
+          if e.kind() != std::io::ErrorKind::NotFound {
+              return Err(ConfigError::IoError { path: file_path.clone(), source: e });
+          }
+          // Silently ignore file not found during read phase? Or log?
+          println!("[Config] Warning: File {:?} not found during read.", file_path);
+        }
+      }
+    }
+  }
 
   // --- 3. Read and merge environment variables (OVERWRITING file values) ---
   const PREFIX: &str = "C5_";
   const SEPARATOR: &str = "__";
-  let mut env_config: HashMap<String, C5DataValue> = HashMap::new();
+  let mut env_config_nested: HashMap<String, C5DataValue> = HashMap::new(); // Build nested for merge
+  let mut env_source_flat_map: HashMap<String, ConfigSource> = HashMap::new(); // Track flat source
 
-  for (key, value) in env::vars() {
-    if key.starts_with(PREFIX) {
-      let trimmed_key = key.trim_start_matches(PREFIX);
-      // Convert C5_DATABASE__HOST to database.host (lowercase)
+  for (env_key_name, value) in env::vars() {
+    if env_key_name.starts_with(PREFIX) {
+      let trimmed_key = env_key_name.trim_start_matches(PREFIX);
       let c5_key = trimmed_key.replace(SEPARATOR, ".").to_lowercase();
 
-      println!("[Config] Reading '{}' from env var '{}'", c5_key, key);
-
-      // Build nested map structure from dot notation for merging
-      let mut current_level = &mut env_config;
-      let key_parts: Vec<&str> = c5_key.split('.').collect();
-
-      // Check for empty key parts resulting from separators at start/end or double separators
-       if key_parts.iter().any(|&part| part.is_empty()) {
-        eprintln!("[Config] Warning: Skipping env var '{}' due to invalid key format '{}' (empty segments)", key, c5_key);
-        continue;
+       if c5_key.split('.').any(|part| part.is_empty()) {
+            eprintln!("[Config] Warning: Skipping env var '{}' due to invalid key format '{}'", env_key_name, c5_key);
+            continue;
        }
 
+      println!("[Config] Reading '{}' from env var '{}'", c5_key, env_key_name);
 
+      // Store flat source info immediately
+      env_source_flat_map.insert(c5_key.clone(), ConfigSource::EnvironmentVariable(env_key_name.clone()));
+
+      // Build nested map structure for merging
+      let mut current_level = &mut env_config_nested;
+      let key_parts: Vec<&str> = c5_key.split('.').collect();
       for (i, part) in key_parts.iter().enumerate() {
         if i == key_parts.len() - 1 {
-          // Last part, insert the value
           current_level.insert(part.to_string(), C5DataValue::String(value.clone()));
         } else {
-          // Navigate or create nested map entry
            let entry = current_level
                .entry(part.to_string())
                .or_insert_with(|| C5DataValue::Map(HashMap::new()));
-
-           // Check if the entry is actually a map before proceeding
            match entry {
-              C5DataValue::Map(map) => current_level = map,
-              _ => return Err(ConfigError::Message(format!(
-              "Env var key conflict: Cannot create nested map for '{}' because part '{}' conflicts with an existing non-map value.",
-              c5_key, part
-            ))),
+               C5DataValue::Map(map) => current_level = map,
+               _ => return Err(ConfigError::Message(format!(
+                        "Env var key conflict: Cannot create nested map for '{}' because part '{}' conflicts with an existing non-map value.",
+                        c5_key, part
+                     ))),
            }
         }
       }
     }
   }
-  // Merge env vars over file config
-  _merge(&mut merged_config, &env_config);
+  // Merge nested env vars over file config
+  _merge(&mut merged_config, &env_config_nested);
   // --- End Environment Variable Processing ---
 
+
   // --- 4. Separate provider configuration from the final merged map ---
-  let mut config_map_for_store_intermediate = HashMap::new(); // Temporary map needed by current _take_provided_data signature
-  // _take_provided_data modifies merged_config IN PLACE, removing provider sections
-  // It puts provider config into `provided_data`
-  // It puts non-provider leaf values into `config_map_for_store_intermediate` (which we ignore)
+  let mut config_map_for_store_intermediate = HashMap::new(); // Still needed for _take_provided_data signature
    _take_provided_data(
-      &mut merged_config,
-      &mut config_map_for_store_intermediate, // Argument required by current signature, but result ignored
-      provided_data
+      &mut merged_config,                       // Source map (modified in place)
+      &mut config_map_for_store_intermediate,  // Not used after this call
+      provided_data                            // Output for provider configs
    );
-   // After this call, `merged_config` contains only the final, non-provider values/maps
+   // `merged_config` now contains only non-provider nested data
 
-  // --- 5. Apply the final non-provider values to the store ---
-  // Flatten the remaining nested structure in merged_config and apply using set_data_fn
+
+  // --- 5. Apply the final non-provider values to the store with source ---
   let mut final_flat_map = HashMap::new();
-  build_flat_map(&mut merged_config, &mut final_flat_map, String::new()); // Use util helper
+  build_flat_map(&mut merged_config, &mut final_flat_map, String::new()); // Flatten remaining values
 
-   for (key, value) in final_flat_map {
-      set_data_fn(&key, value);
-   }
+  for (key, value) in final_flat_map {
+    // Determine source: Check env source map first, then file source map
+    let final_source = match env_source_flat_map.get(&key) {
+      Some(env_source) => env_source.clone(), // Env var took precedence
+      None => {
+        // Must have come from a file (or be a nested key from a file)
+        let top_level_key = key.split('.').next().unwrap_or(&key);
+        file_source_map.get(top_level_key)
+          .map(|path| ConfigSource::File(path.clone()))
+          .unwrap_or(ConfigSource::Unknown) // Fallback if top-level key somehow wasn't tracked
+      }
+    };
 
-  Ok(()) // Signal success
+    // Use internal setter with source info
+    data_store._set_data_internal(&key, value, final_source);
+  }
+
+  Ok(())
 
 }
 

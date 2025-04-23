@@ -6,24 +6,32 @@ use std::sync::Arc;
 use maplit::hashmap;
 use multimap::MultiMap;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
+#[cfg(feature="secrets")]
 use sha2::{Digest, Sha256};
 use skiplist::SkipMap;
 
-use crate::ChangeListener;
+use crate::config_source::ConfigSource;
+use crate::core::nat_lex_sort::NatLexOrderedString;
+use crate::{core, ChangeListener, DetailedChangeListener};
 use crate::secrets::SecretKeyStore;
 use crate::telemetry::{Logger, StatsRecorder, TagValue};
 use crate::value::C5DataValue;
 
 pub struct C5StoreDataValueRef<'a> {
-  pub (in self) _lock: RwLockReadGuard<'a, SkipMap<NaturalOrderedString, C5DataValue>>,
-  pub (in self) _natural_key_path: NaturalOrderedString,
+  pub (in self) _lock: RwLockReadGuard<'a, SkipMap<NatLexOrderedString, (C5DataValue, ConfigSource)>>,
+  pub (in self) _natural_key_path: NatLexOrderedString,
 }
 
 impl <'a> C5StoreDataValueRef<'a> {
 
   pub fn value(&'a self) -> Option<&'a C5DataValue> {
+    // Extract value from tuple
+    self._lock.get(&self._natural_key_path).map(|(value, _source)| value)
+  }
 
-    return self._lock.get(&self._natural_key_path);
+  pub fn source(&'a self) -> Option<&'a ConfigSource> {
+    // Extract source from tuple
+    self._lock.get(&self._natural_key_path).map(|(_value, source)| source)
   }
 }
 
@@ -34,7 +42,7 @@ pub (in crate) struct C5DataStore {
   _secret_key_path_segment: String,
   _secret_key_store: Arc<SecretKeyStore>,
   _value_hash_cache: Arc<RwLock<HashMap<String, Vec<u8>>>>,
-  _data: Arc<RwLock<SkipMap<NaturalOrderedString, C5DataValue>>>,
+  _data: Arc<RwLock<SkipMap<NatLexOrderedString, (C5DataValue, ConfigSource)>>>,
 }
 
 impl C5DataStore {
@@ -63,11 +71,10 @@ impl C5DataStore {
       },
       "get_attempts".to_string()
     );
-    let natural_key_path = NaturalOrderedString::from(key);
+    let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
-    let data_option = rwlock.get(&natural_key_path);
 
-    return data_option.map(|value| (*value).clone());
+    return rwlock.get(&natural_key_path).map(|(value, _source)| value.clone());
   }
 
   // Gets, if exist, a reference context to value.
@@ -80,7 +87,7 @@ impl C5DataStore {
       },
       "get_attempts".to_string()
     );
-    let natural_key_path = NaturalOrderedString::from(key);
+    let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
     let contains_key = rwlock.contains_key(&natural_key_path);
 
@@ -97,6 +104,17 @@ impl C5DataStore {
 
   pub fn set_data(&self, key: &str, value: C5DataValue) -> Option<C5DataValue> {
 
+    let source = ConfigSource::Provider("UnknownProvider".to_string()); // Or SetProgrammatically/Unknown
+    self._set_data_internal(key, value, source)
+  }
+
+  // Called by read_config_data and potentially the public set_data
+  pub(in crate) fn _set_data_internal(
+    &self,
+    key: &str,
+    value: C5DataValue,
+    source: ConfigSource,
+  ) -> Option<C5DataValue> {
     self._stats_recorder.record_counter_increment(
       hashmap!{
         "group".to_string() => TagValue::String("c5store".to_string()),
@@ -104,26 +122,42 @@ impl C5DataStore {
       "set_attempts".to_string()
     );
 
+    // Handle secrets conditionally
+    #[cfg(feature = "secrets")]
     if key.ends_with(&*self._secret_key_path_segment) {
-    
-
       let decrypted_val_result = self._get_secret(key, &value);
 
-      if decrypted_val_result.is_none() {
-  
-        return None;
+      if let Some(decrypted_val) = decrypted_val_result {
+        let data_path = Box::from(&key[..(key.len() - self._secret_key_path_segment.len())]);
+        // Store decrypted bytes with the original source info
+        return self._data.write().insert(
+          NatLexOrderedString::from(data_path),
+          (C5DataValue::Bytes(decrypted_val), source) // Use provided source
+        ).map(|(old_value, _old_source)| old_value);
+      } else {
+         // Decryption failed or skipped (e.g., cached), don't store
+         // Logged inside _get_secret
+         return None;
       }
-
-      let data_path = Box::from(&key[..(key.len() - self._secret_key_path_segment.len())]);
-
-      let decrypted_val = decrypted_val_result.unwrap();
-
-      return self._data.write().insert(NaturalOrderedString::from(data_path), C5DataValue::Bytes(decrypted_val));
     }
 
-    return self._data.write().insert(NaturalOrderedString::from(key), value);
+    // Default behavior (not a secret or secrets disabled)
+    // Store the value and source tuple
+    return self._data.write().insert(
+      NatLexOrderedString::from(key),
+      (value, source) // Use provided source
+    ).map(|(old_value, _old_source)| old_value);
   }
 
+  // Public method to get source info
+  pub fn get_source_info(&self, key: &str) -> Option<ConfigSource> {
+    let natural_key_path = NatLexOrderedString::from(key);
+    let rwlock = self._data.read();
+    // Extract source info from tuple and clone it
+    rwlock.get(&natural_key_path).map(|(_value, source)| source.clone())
+  }
+  
+  #[cfg(feature = "secrets")]
   fn _get_secret(&self, key_path: &str, value: &C5DataValue) -> Option<Vec<u8>> {
 
     let data_result = value.clone().try_into();
@@ -219,7 +253,7 @@ impl C5DataStore {
       "exists_attempts".to_string()
     );
     
-    return self._data.read().contains_key(&NaturalOrderedString::from(key));
+    return self._data.read().contains_key(&NatLexOrderedString::from(key));
   }
 
   /// Checks if the key's prefix exist
@@ -236,14 +270,25 @@ impl C5DataStore {
       return true;
     }
 
-    let natural_key_path = NaturalOrderedString::from(key);
+    let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
 
-    if let Some(lower_bound_key) = rwlock.lower_bound(Bound::Included(&natural_key_path)) {
-      if !(lower_bound_key.0).0.starts_with(&*key) {
-        return false;
+    // Check if any key in the map starts with the prefix + "."
+    // Use range scan for efficiency with SkipMap
+    let prefix_dot = key.to_string() + ".";
+    let mut range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);
+
+    // Check the first element greater than or equal to the key itself
+    if let Some((found_key, _)) = range.next() {
+      // If the found key starts with the original key OR the key + ".", it's a prefix match
+      if found_key.0.starts_with(key) { // Handles exact match case again, and prefix case like "a.b" matching "a.b.c"
+        // Check if it actually starts with prefix + dot if not an exact match
+        if found_key.0 != key && found_key.0.starts_with(&prefix_dot) {
+          return true;
+        }
+        // If found_key == key, it's an exact match, handled by self.exists earlier.
+        // If it starts with key but not key + ".", like "abc" matching "abcdef", we don't count it as prefix for *path* exists.
       }
-      return true;
     }
 
     return false;
@@ -259,7 +304,7 @@ impl C5DataStore {
         let mut result = vec![];
 
         let prefix_key = key_path.to_string() + ".";
-        let natural_key_path = NaturalOrderedString::from(key_path);
+        let natural_key_path = NatLexOrderedString::from(key_path);
         let rwlock = self._data.read();
         let range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);
 
@@ -277,54 +322,17 @@ impl C5DataStore {
   }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Clone)]
-struct NaturalOrderedString(String);
-
-impl Ord for NaturalOrderedString {
-  fn cmp(&self, other: &Self) -> Ordering {
-    return natord::compare_ignore_case(&self.0, &other.0);
-  }
-}
-
-impl PartialOrd for NaturalOrderedString {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    return Some(natord::compare_ignore_case(&self.0, &other.0));
-  }
-}
-
-impl From<&str> for NaturalOrderedString {
-  fn from(value: &str) -> Self {
-    return NaturalOrderedString(value.to_string());
-  }
-}
-
-impl From<Box<str>> for NaturalOrderedString {
-  fn from(value: Box<str>) -> Self {
-    return NaturalOrderedString(value.to_string());
-  }
-}
-
-impl Into<Box<str>> for NaturalOrderedString {
-  fn into(self) -> Box<str> {
-    return self.0.into_boxed_str();
-  }
-}
-
-impl From<String> for NaturalOrderedString {
-  fn from(value: String) -> Self {
-    return NaturalOrderedString(value);
-  }
-}
-
 #[derive(Clone)]
 pub (in crate) struct C5StoreSubscriptions {
-  _change_listeners: Arc<RwLock<MultiMap<String, Box<ChangeListener>>>>,
+  _simple_listeners: Arc<RwLock<MultiMap<String, Box<ChangeListener>>>>,
+  _detailed_listeners: Arc<RwLock<MultiMap<String, Box<DetailedChangeListener>>>>,
 }
 
 impl C5StoreSubscriptions {
   pub fn new() -> C5StoreSubscriptions {
     return C5StoreSubscriptions {
-      _change_listeners: Arc::new(RwLock::new(MultiMap::new())),
+      _simple_listeners: Arc::new(RwLock::new(MultiMap::new())),
+      _detailed_listeners: Arc::new(RwLock::new(MultiMap::new())),
     };
   }
 }
@@ -332,23 +340,36 @@ impl C5StoreSubscriptions {
 impl C5StoreSubscriptions {
   pub fn add(&self, key_path: &str, listener: Box<ChangeListener>) {
 
-    self._change_listeners.write().insert(key_path.to_string(), listener);
+    self._simple_listeners.write().insert(key_path.to_string(), listener);
   }
 
-  pub fn notify_value_change(&self, notify_key_path: &str, key_path: &str, value: &C5DataValue) {
+  pub fn add_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
+    self._detailed_listeners.write().insert(key_path.to_string(), listener);
+  }
 
-    let rwlock = self._change_listeners.read();
-    
-    if let Some(change_listeners) = rwlock.get_vec(notify_key_path) {
+  pub fn notify_value_change(&self, notify_key_path: &str, changed_key_path: &str, new_value: &C5DataValue,
+    old_value: Option<&C5DataValue>,) {
 
-      for change_listener in change_listeners {
+    // Notify simple listeners (ignore old_value)
+    let simple_lock = self._simple_listeners.read();
+    if let Some(simple_listeners) = simple_lock.get_vec(notify_key_path) {
+      for listener in simple_listeners {
+        listener(notify_key_path, changed_key_path, new_value);
+      }
+    }
+    drop(simple_lock); // Release read lock
 
-        change_listener(notify_key_path, key_path, value);
+    // Notify detailed listeners
+    let detailed_lock = self._detailed_listeners.read();
+    if let Some(detailed_listeners) = detailed_lock.get_vec(notify_key_path) {
+      for listener in detailed_listeners {
+        listener(notify_key_path, changed_key_path, new_value, old_value);
       }
     }
   }
 }
 
+#[cfg(feature="secrets")]
 fn _calc_hash_value(algo: &String, secret_key_name: &String, encoded_data: &String,) -> Option<Vec<u8>> {
   
   let mut hasher = Sha256::new();

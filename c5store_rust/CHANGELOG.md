@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-04-23
+
+### Added
+
+*   **Environment Variable Overrides:** Configuration values can now be overridden by setting environment variables (e.g., `C5_DATABASE__HOST=localhost` overrides `database.host`). Env vars have higher priority than files.
+*   **Struct Deserialization:** Added `C5Store::get_into_struct<T>(key_path)` method to deserialize a configuration branch directly into a Rust struct using `serde`.
+*   **Configuration Source Tracking:**
+    *   Added `ConfigSource` enum to represent the origin of a value (File, Environment Variable, Provider, etc.).
+    *   Added `C5Store::get_source(key_path)` method to retrieve the source of a configuration value.
+    *   Internal storage now tracks the source alongside the value.
+*   **Directory Loading:** `create_c5store` now accepts directory paths in `config_paths`. It will load and merge all supported files (`.yaml`, `.yml`, `.toml`) found within, processed alphabetically.
+*   **TOML Configuration Files:** Added support for loading configuration from `.toml` files alongside `.yaml` (requires `toml` feature, enabled by default via `full` feature or explicitly).
+*   **Optional Feature Flags:**
+    *   `dotenv`: Enables loading environment variables from a `.env` file at startup using `C5StoreOptions::dotenv_path`.
+    *   `toml`: Enables parsing of `.toml` configuration files.
+    *   `secrets`: Enables all secrets management functionality (enabled by default). Can be disabled via `default-features = false` for smaller builds if secrets are not needed.
+    *   `full`: Convenience feature to enable `dotenv`, `toml`, and `secrets`.
+*   **Secrets Key Loading from Environment:** Added `SecretOptions::load_secret_keys_from_env` and `secret_key_env_prefix` to load base64-encoded secret keys from environment variables (requires `secrets` feature).
+*   **Detailed Change Notifications:**
+    *   Added `DetailedChangeListener` type alias.
+    *   Added `C5Store::subscribe_detailed(key_path, listener)` method. Listeners receive both the new value and the previous value (`Option<&C5DataValue>`).
+*   **Natural/Lexicographical Sorting:** Added internal utilities and `NatLexOrderedString` for improved key sorting within the store, prioritizing lexicographical sorting for same-length keys (like ULIDs) and natural sorting otherwise.
+
+### Changed
+
+*   **BREAKING:** `C5Store::get_into<T>(key_path)` now returns `Result<T, ConfigError>` instead of `Option<T>` for better error handling. Callers must update to handle `Result`.
+*   **BREAKING:** `create_c5store` now returns `Result<(impl C5Store, C5StoreMgr), ConfigError>` to propagate errors during loading (IO, parsing, secrets, etc.). Callers must update to handle `Result`.
+*   **Error Handling:** Introduced `ConfigError` enum for specific error reporting across the library (KeyNotFound, TypeMismatch, IO errors, Parse errors, Deserialization errors, Secrets errors, etc.).
+*   **Internal:** `C5DataStore` now stores configuration values internally as `(C5DataValue, ConfigSource)`.
+*   **Internal:** `read_config_data` now encapsulates all loading (files, dirs, env vars), merging, provider separation, and initial application of values to the store.
+*   **Dependencies:** Added `thiserror`. Made `toml`, `dotenvy`, `ecies_25519`, `curve25519-parser`, `sha2` optional based on features.
+
+### Fixed
+
+*   Resolved potential `RefCell` double-borrow panic within `ChangeNotifier`'s debouncing logic.
+
+## [0.2.7]
+
 ### Changed
 - Added multiple C5DataValue TryInto and From data type support for (i|u)8-64. Using macros to generate this code.
 - Added C5DataValue ref TryInto and From for all types
