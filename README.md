@@ -1,33 +1,50 @@
 # C5Store
 
-Stands for ConfigStore. This library provides a unified store for configuration and secrets.
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+<!-- Add other badges here if you have them -->
+
+**C5Store** (ConfigStore) is a library providing a **unified, traceable, and dynamic store for configuration and secrets** across multiple programming languages, with implementations currently available for [Rust](./c5store_rust) and [JavaScript](./c5store_js).
 
 # Background
 
-Essentially, there should be one place to read configuration values while gathering values from multiple sources. If any changes occur while the application is running then the application should have the choice to reconfigure itself on the flu.
+Modern applications often need configuration from multiple sources (files, environment variables, remote systems). Managing this complexity, handling secrets securely, and reacting to configuration changes during runtime can lead to repetitive boilerplate and potential errors. Passing around raw configuration maps makes it hard to track value origins or manage context.
 
-Reading a "map" from a yaml file is great, but how does an application read from outside datasources? How does it respond to value changes? Keep writing custom handlers or use a framework to do this? Passing the tree (map) or branches (maps of maps, submaps) around is riddled with mistakes. Where are you in the tree? Just never made sense to me every time I started on a new project at home or work.
-
-What if could embed my pet peeves into a library. One where I could pass around a store where I could do the things I was doing with a map get data, check if the key exists and pass around sub maps? Bonus would be that I could subscribe to changes and reconfigure the application without intrusive restarts. C5Store is what I call it. Now I can just pick this library and not ask what to use, where or how to use a configuration store.
+C5Store aims to solve these problems by providing a consistent interface and framework across different languages. It centralizes configuration access, integrates various sources, handles secrets transparently, and enables dynamic reconfiguration through a subscription model.
 
 # Concept
 
-Applications desire to get configuration from multiple sources and formats (file, network, database, etc.). C5Store enables every application to have their own configuration store where data is fed in by Value Providers. Value Providers bring in data from multiple sources and feed into the configuration store.
-- Look at the [javascript implementation](c5store_js) for an example.
+C5Store provides a central store where applications can retrieve configuration values using a consistent API, regardless of the underlying source. Key concepts include:
 
-Also, C5Store enables applications to reconfigure if a value changes via subscription.
-- [Tech Example] For example, if a secret was entered into a file and it changed every so often, then we'd want to make sure our configs dynamically update with the latest data. First, you'd want to create a WatchedFileValueProvider and have it watch the secrets file. Whenever the file changes, you'd update the internal datastore of the provider for when the provider is called to push data to the configuration store will provide the new value.
+1.  **Unified Interface:** Access configuration values via simple dot-notation keys (e.g., `database.host`). Create "branches" to work with subsections of the configuration using relative paths.
+2.  **Multiple Sources & Formats:** Load initial configuration from various sources with defined precedence:
+    *   **Environment Variables:** Override values using process environment variables (e.g., `C5_DATABASE__HOST=...`).
+    *   **Configuration Files:** Load from YAML and TOML files.
+    *   **Directories:** Load all supported files within specified directories.
+    *   **(Optional Feature)** `.env` Files: Load environment variables from `.env` files.
+    *   **(Extensible)** Custom sources via Value Providers.
+3.  **Value Providers:** A pluggable system to load configuration dynamically from external sources (files, databases, network services). C5Store provides traits/interfaces for creating custom providers, allowing integration with virtually any data source. Includes a built-in File provider.
+4.  **Secrets Management (Optional Feature):**
+    *   Securely handle sensitive values (like API keys or passwords) embedded within configuration.
+    *   Secrets are defined using a special key (default: `.c5encval`) containing `["<algorithm>", "<key_name>", "<base64_encrypted_data>"]`.
+    *   Secrets are automatically decrypted when configuration is loaded or refreshed.
+    *   Supports pluggable decryption algorithms (built-ins include `base64` decoding and `ecies_x25519`).
+    *   Load decryption keys securely from files or environment variables.
+5.  **Change Subscription:** Applications can subscribe to changes for specific configuration keys (or entire branches). Listeners are notified (with optional old/new value details) when values change, allowing for dynamic reconfiguration without restarts.
+6.  **Source Tracking:** Identify the origin of any configuration value (which file, environment variable, or provider set it).
 
-## Secrets
+This approach allows developers to focus on using configuration rather than managing its complex lifecycle.
 
-Secrets are provided in the format ["decryptor name", "key name", "encrypted value"] where the key path ends with ".c5enval".
+## Implementations
 
-Secrets are encrypted application configuration values like database passwords or google client secret keys. In C5Store, it is implemented in a highly effective way utilizating existing code paths. Secrets are decrypted at the same time the data is loaded in, so a seed configuration file or value provider can bring in secrets and there will be decrypted on the fly. This means secrets are updatable and the application can reconfigure itself in response. 
+*   **Rust:** [c5store_rust](./c5store_rust) - The reference implementation, featuring strong typing, feature flags for optional components, and robust error handling.
+*   **JavaScript:** [c5store_js](./c5store_js) - Provides a similar API and core concepts for Node.js environments.
+    - Warning: API is not feature parity with rust currently
+*   **Java:** [c5store_java](./c5store_java) - Provides a similar API and core concepts for Java environments.
+    - Warning: API is not feature parity with rust currently
 
-In terms of setting up the secrets decryption, the application will load in the private keys (file names are the key name) from a specified directory, but the decryptors must be manually specified in code.
-
-Look at tests for an example.
+Refer to the specific implementation directories for detailed documentation and usage examples.
 
 # Note
 
-1. In the future maybe there will be a public cli for encryption and setting the data in the config yaml files.
+*   A potential future addition could be a command-line interface (CLI) tool to help with encrypting secrets and managing configuration files.
+*   Additional built-in Value Providers for common sources (e.g., Consul, Vault, databases) may be added over time or contributed by the community.
