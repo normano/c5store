@@ -133,3 +133,38 @@ pub fn serde_json_val_to_c5_value(raw_value: serde_json::Value) -> C5DataValue {
     },
   };
 }
+
+pub(in crate) fn map_from_serde_yaml_valuemap(value_map: HashMap<String, serde_yaml::Value>) -> HashMap<String, C5DataValue> {
+
+  let mut result = HashMap::new();
+
+  for (key, value) in value_map.iter() {
+    result.insert(key.clone(), serde_yaml_val_to_c5_value(value.clone()));
+  }
+
+  return result;
+}
+
+
+#[cfg(feature = "toml")]
+pub fn toml_value_to_c5_value(toml_value: toml::Value) -> C5DataValue {
+  match toml_value {
+    toml::Value::String(s) => C5DataValue::String(s),
+    toml::Value::Integer(i) => C5DataValue::Integer(i), // TOML Integer is i64
+    toml::Value::Float(f) => C5DataValue::Float(f),   // TOML Float is f64
+    toml::Value::Boolean(b) => C5DataValue::Boolean(b),
+    toml::Value::Datetime(dt) => C5DataValue::String(dt.to_string()), // Represent datetime as string
+    toml::Value::Array(arr) => C5DataValue::Array(arr.into_iter().map(toml_value_to_c5_value).collect()),
+    toml::Value::Table(table) => C5DataValue::Map(map_from_toml_value_map(table.into_iter().collect())),
+  }
+}
+
+#[cfg(feature = "toml")]
+/// Converts a map of `toml::Value` into a map of `C5DataValue`.
+pub(in crate) fn map_from_toml_value_map(toml_map: HashMap<String, toml::Value>) -> HashMap<String, C5DataValue> {
+
+  toml_map
+    .into_iter()
+    .map(|(key, value)| (key, toml_value_to_c5_value(value))) 
+    .collect()
+}

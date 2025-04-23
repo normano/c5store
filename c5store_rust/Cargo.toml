@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.2.7"
+version = "0.3.0"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
 description = "Provides a unified store for configuration and secrets."
@@ -10,8 +10,9 @@ license = "MPL-2.0"
 
 [dependencies]
 base64 = "^0.22"
-curve25519-parser = { version = "^0" }
-ecies_25519 = { version = "^0" }
+curve25519-parser = { version = "^0", optional = true  }
+dotenvy = { version = "^0.15", optional = true }
+ecies_25519 = { version = "^0", optional = true }
 log = "^0.4"
 maplit = "^1"
 multimap = "^0.10"
@@ -24,9 +25,20 @@ scheduled-thread-pool = "^0.2"
 serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
 serde_yaml = "^0"
-sha2 = "^0.10"
+sha2 = { version = "^0.10", optional = true }
 shellexpand = "^3.0"
 skiplist = "^0.5"
+thiserror = "^2.0.12"
+toml = { version = "^0.8", optional = true }
 
 [dev-dependencies]
 serde_test = "^1.0"
+
+[features]
+full = ["dotenv", "toml", "secrets"]
+default = ["secrets"] # Secrets enabled by default
+# Optional feature for loading .env files
+dotenv = ["dep:dotenvy"]
+toml = ["dep:toml"]
+# Optional feature for core secrets management (default on)
+secrets = ["dep:ecies_25519", "dep:curve25519-parser", "dep:sha2"]

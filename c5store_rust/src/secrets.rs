@@ -1,6 +1,7 @@
+#[cfg(feature = "secrets")]
 use std::collections::HashMap;
-
 use ecies_25519::{EciesX25519, StaticSecret};
+use base64::Engine;
 
 #[derive(Debug)]
 pub enum SecretDescryptorError {
