@@ -8,6 +8,8 @@ example:
     .provider: resources
     path: "some_secret.yaml"
     format: "yaml"
+  test:
+    and: 1 # Override base value
 bill:
   barr: AG
   bullshit:
@@ -17,3 +19,7 @@ list_of_items:
 - "Does"
 - "This"
 - "work?"
+database:
+  host: db.local.com  # Override common host
+  port: 5433         # Override common port
+  user: local_user

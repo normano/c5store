@@ -2,5 +2,17 @@ example:
   foo: bar
   test:
     my: app
-    and: 1
+    and: 0 # Base value
+  scalar: value
+  another_map:
+    key1: common_val1
+    key2: common_val2
   
+database:
+  host: db.common.com # Base host
+  port: 5432        # Base port
+  # No user here
+
+common_only:
+  deep:
+    key: true

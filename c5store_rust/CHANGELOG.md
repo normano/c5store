@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-04-26
+
+### Changed
+*   Enhanced `C5Store::get_into_struct<T>()` to support deserialization from configurations where values are provided as flattened keys (e.g., `database.host`, `database.port`) in addition to nested map structures. This allows structs to be populated correctly from environment variables or flattened config files.
+
 ## [0.3.0] - 2025-04-23
 
 ### Added
