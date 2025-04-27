@@ -21,33 +21,51 @@ pub fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> S
   ).unwrap().to_string();
 }
 
-pub fn build_flat_map(
-  raw_config_data: &mut HashMap<String, C5DataValue>,
-  config_data: &mut HashMap<String, C5DataValue>,
-  keypath: String,
+// Recursive helper for flattening maps. Doesn't modify the source map.
+fn build_flat_map_recursive(
+  source_map: &HashMap<String, C5DataValue>, // Takes immutable ref
+  flat_map_out: &mut HashMap<String, C5DataValue>, // Output map
+  current_path: &str, // Use &str for efficiency
 ) {
-  let keys: Vec<String> = raw_config_data.keys().into_iter().cloned().collect();
-
-  for key in keys {
-    let mut value = raw_config_data.get_mut(&key).unwrap();
-    let new_keypath: String;
-
-    if keypath.is_empty() {
-      new_keypath = key.clone();
+  for (key, value) in source_map.iter() {
+    let new_keypath = if current_path.is_empty() {
+        key.clone()
     } else {
-      new_keypath = keypath.clone() + "." + &key;
-    }
+        format!("{}.{}", current_path, key)
+    };
 
-    if let C5DataValue::Map(ref mut data_map) = &mut value {
-      if !data_map.contains_key(CONFIG_KEY_PROVIDER) {
-        build_flat_map(data_map, config_data, new_keypath);
-
-        if data_map.len() == 0 {
-          raw_config_data.remove(&key);
-        }
+    match value {
+      C5DataValue::Map(sub_map) => {
+         // Avoid flattening provider config maps - their structure should be preserved
+         // until handled by the provider itself.
+         if !sub_map.contains_key(CONFIG_KEY_PROVIDER) {
+            // Recurse for non-provider maps
+            build_flat_map_recursive(sub_map, flat_map_out, &new_keypath);
+         }
+         // NOTE: We do NOT insert the C5DataValue::Map itself into the flat map.
+         // If it was a provider map, it's skipped entirely here.
+         // If it was a regular map, its children are added via recursion.
       }
-    } else {
-      config_data.insert(new_keypath.clone(), value.clone());
+      // Includes Primitives, Bytes, Strings, Booleans, Null, and Arrays
+      _ => {
+        // Insert non-map values (including arrays) directly into the flat map.
+        flat_map_out.insert(new_keypath, value.clone());
+      }
     }
   }
+}
+
+/// Flattens a nested `HashMap<String, C5DataValue>` into a single-level map
+/// where keys represent the full path (e.g., "a.b.c").
+///
+/// This function does NOT modify the input `raw_config_data` map.
+/// It populates the output `config_data` map.
+/// Provider configurations (maps containing a `.provider` key) are skipped during flattening.
+pub fn build_flat_map(
+  raw_config_data: &HashMap<String, C5DataValue>, // Changed to immutable ref
+  config_data: &mut HashMap<String, C5DataValue>, // Output map
+  keypath: String, // Base path (often empty string)
+) {
+    // Call the recursive helper starting with the base path
+    build_flat_map_recursive(raw_config_data, config_data, &keypath);
 }
