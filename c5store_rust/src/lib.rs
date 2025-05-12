@@ -1,3 +1,5 @@
+#[cfg(feature = "bootstrapper")]
+pub mod bootstrapper;
 mod config_source;
 mod data;
 pub mod error;

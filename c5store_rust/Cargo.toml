@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
 description = "Provides a unified store for configuration and secrets."
@@ -31,14 +31,17 @@ skiplist = "^0.5"
 thiserror = "^2.0.12"
 toml = { version = "^0.8", optional = true }
 
+tokio = { version = "^1", features = ["fs", "macros", "rt-multi-thread"], optional = true  }
+reqwest = { version = "^0.12", optional = true }
+url = { version = "^2.3", optional = true  }
+
 [dev-dependencies]
 serde_test = "^1.0"
 
 [features]
-full = ["dotenv", "toml", "secrets"]
-default = ["secrets"] # Secrets enabled by default
-# Optional feature for loading .env files
+full = ["dotenv", "toml", "secrets", "bootstrapper"]
+default = ["secrets"]
 dotenv = ["dep:dotenvy"]
 toml = ["dep:toml"]
-# Optional feature for core secrets management (default on)
 secrets = ["dep:ecies_25519", "dep:curve25519-parser", "dep:sha2"]
+bootstrapper = [ "dep:reqwest", "dep:tokio", "dep:url"]
