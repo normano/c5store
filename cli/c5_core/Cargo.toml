@@ -1,0 +1,37 @@
+[package]
+name = "c5_core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Norm O <normo.pub@gmail.com>"]
+
+description = "Core utilities for c5store secret management CLI, providing cryptographic operations, key management, YAML parsing, and file I/O."
+readme = "README.md"
+homepage = "https://github.com/normano/c5store/tree/main/cli/c5_core"
+repository = "https://github.com/normano/c5store.git"
+keywords = ["crypto", "yaml", "secrets", "utilities", "ecies"]
+categories = ["cryptography", "parser-implementations", "command-line-interface"]
+
+[dependencies]
+base64 = "^0.21"
+hashlink = "^0.10"
+serde = { workspace = true }
+serde_yaml2 = "^0.1"
+thiserror = { workspace = true }
+yaml-rust2 = { workspace = true }
+
+# Crypto dependencies for ECIES X25519
+ecies_25519 = { version = "^0.2" } 
+rand = "^0.9"
+rand_core = "^0.9"
+
+# For Ed25519 (SSH keys generation - new for CLI)
+ed25519-dalek = { package = "xs_ed25519-dalek", version = "^2.1", features = ["pem", "rand_core", "std"] } 
+sshkeys = "^0.3"
+
+[dev-dependencies]
+serial_test = { workspace = true }
+tempfile = "^3"
+
+[features]
+full = ["default"]
+default = []
