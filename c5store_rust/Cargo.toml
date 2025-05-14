@@ -1,12 +1,21 @@
 [package]
 name = "c5store"
 version = "0.4.0"
-authors = ["Norm O <normo.pub@gmail.com>"]
 edition = "2021"
-description = "Provides a unified store for configuration and secrets."
+authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A comprehensive Rust library for unified configuration and secret management, supporting various sources, typed access, and local encryption."
+readme = "README.md"
+homepage = "https://github.com/normano/c5store/tree/main/c5store_rust"
+repository = "https://github.com/normano/c5store.git"
+keywords = ["config", "secrets", "settings", "encryption", "yaml"] # Focused to 5 keywords
+categories = [
+  "config",
+  "cryptography",
+  "filesystem",
+  "parser-implementations"
+]
 
 [dependencies]
 base64 = "^0.22"

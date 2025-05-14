@@ -1,0 +1,18 @@
+[workspace]
+members = [
+  "c5_core",
+  "c5cli",
+] 
+resolver = "2" # Recommended for new projects
+
+# Optional: Define default members if you want `cargo run` at the root to target c5cli
+# default-members = ["c5cli"]
+
+# Optional: Define shared workspace-level dependencies if many crates use them
+[workspace.dependencies]
+serde = {version = "^1.0", features = ["derive"]}
+thiserror = "^1.0"
+yaml-rust2 = "^0.10"
+
+# Test
+serial_test = "^3.2"
