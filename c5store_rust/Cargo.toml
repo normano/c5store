@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
@@ -9,7 +9,7 @@ description = "A comprehensive Rust library for unified configuration and secret
 readme = "README.md"
 homepage = "https://github.com/normano/c5store/tree/main/c5store_rust"
 repository = "https://github.com/normano/c5store.git"
-keywords = ["config", "secrets", "settings", "encryption", "yaml"] # Focused to 5 keywords
+keywords = ["config", "secrets", "settings", "encryption", "yaml"]
 categories = [
   "config",
   "cryptography",
