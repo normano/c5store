@@ -46,6 +46,7 @@ url = { version = "^2.3", optional = true  }
 
 [dev-dependencies]
 serde_test = "^1.0"
+serial_test = "^3.2.0"
 
 [features]
 full = ["dotenv", "toml", "secrets", "bootstrapper"]
