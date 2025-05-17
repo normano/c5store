@@ -1,6 +1,6 @@
 # c5cli - Command Line Interface for c5store Secret Management
 
-`c5cli` is a command-line tool for managing secrets within YAML configuration files, designed to work with the [c5store](https://github.com/your_org/c5store_rust) (link to your c5store_rust repo if it exists) configuration library's secret format. It allows you to encrypt, decrypt, and generate cryptographic keys for securing sensitive data.
+`c5cli` is a command-line tool for managing secrets within YAML configuration files, designed to work with the [c5store](https://github.com/normano/c5store) configuration library's secret format. It allows you to encrypt, decrypt, and generate cryptographic keys for securing sensitive data.
 
 This tool leverages the `c5_core` library for its underlying cryptographic and YAML manipulation capabilities.
 
