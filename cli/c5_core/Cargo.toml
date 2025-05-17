@@ -1,15 +1,16 @@
 [package]
 name = "c5_core"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["Norm O <normo.pub@gmail.com>"]
+license = "MPL-2.0"
 
 description = "Core utilities for c5store secret management CLI, providing cryptographic operations, key management, YAML parsing, and file I/O."
 readme = "README.md"
 homepage = "https://github.com/normano/c5store/tree/main/cli/c5_core"
 repository = "https://github.com/normano/c5store.git"
-keywords = ["crypto", "yaml", "secrets", "utilities", "ecies"]
-categories = ["cryptography", "parser-implementations", "command-line-interface"]
+keywords = ["encryption", "secrets", "config", "ecies", "keygen"]
+categories = ["command-line-utilities", "config", "development-tools"]
 
 [dependencies]
 base64 = "^0.21"

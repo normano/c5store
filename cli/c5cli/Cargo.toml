@@ -1,20 +1,20 @@
 [package]
 name = "c5cli"
-authors = ["Norm O <normo.pub@gmail.com>"]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
 
 description = "Command-line interface for c5store secret management, enabling encryption, decryption, and key generation for YAML configurations."
 readme = "README.md"
 homepage = "https://github.com/normano/c5store/tree/main/cli/c5cli"
 repository = "https://github.com/normano/c5store.git"
-keywords = ["cli", "secrets", "config", "yaml", "encryption", "c5store"]
-categories = ["command-line-utilities", "cryptography", "development-tools::configuration"]
+keywords = ["cli", "secrets", "config", "encryption", "keygen"]
+categories = ["command-line-utilities", "config", "development-tools"]
 
 [dependencies]
 atty = "^0"
-c5_core = { path = "../c5_core" } 
+c5_core = { version = "^1", path = "../c5_core" } 
 clap = { version = "^4.5", features = ["derive", "cargo"] }
 serde_yaml2 = "^0.1"
 rand = "^0.9"
