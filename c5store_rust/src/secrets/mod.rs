@@ -1,7 +1,11 @@
 #[cfg(feature = "secrets")]
 use std::collections::HashMap;
+use base64::{engine::GeneralPurpose, Engine};
 use ecies_25519::{EciesX25519, StaticSecret};
-use base64::Engine;
+
+pub mod systemd;
+
+const BASE64_GENERAL: GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
 #[derive(Debug)]
 pub enum SecretDescryptorError {
@@ -15,12 +19,13 @@ pub trait SecretDecryptor: Sync + Send {
   fn decrypt(&self, encrypted_value: &Vec<u8>, key: &Vec<u8>) -> Result<Vec<u8>, SecretDescryptorError>;
 }
 
-pub (in crate) struct Base64SecretDecryptor {}
+// Used for tests
+pub struct Base64SecretDecryptor {}
 
 impl SecretDecryptor for Base64SecretDecryptor {
   fn decrypt(&self, encrypted_value: &Vec<u8>, _key_bytes: &Vec<u8>) -> Result<Vec<u8>, SecretDescryptorError> {
     
-    let output_result = base64::decode(encrypted_value);
+    let output_result = BASE64_GENERAL.decode(encrypted_value);
 
     if output_result.is_err() {
       return Err(SecretDescryptorError::DecodeFailed);
@@ -46,7 +51,7 @@ impl EciesX25519SecretDecryptor {
 impl SecretDecryptor for EciesX25519SecretDecryptor {
   fn decrypt(&self, encrypted_value: &Vec<u8>, key_bytes: &Vec<u8>) -> Result<Vec<u8>, SecretDescryptorError> {
 
-    let decoded_value_result = base64::decode(&encrypted_value);
+    let decoded_value_result = BASE64_GENERAL.decode(&encrypted_value);
 
     if decoded_value_result.is_err() {
       return Err(SecretDescryptorError::DecodeFailed);

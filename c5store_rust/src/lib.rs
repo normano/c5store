@@ -43,7 +43,11 @@ use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
 use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
 #[cfg(feature = "secrets")]
+use crate::secrets::systemd::SystemdCredential;
+#[cfg(feature = "secrets")]
 use crate::secrets::SecretKeyStore;
+#[cfg(feature = "secrets")]
+use crate::secrets::systemd::load_systemd_credentials;
 #[cfg(not(feature = "secrets"))]
 use crate::secrets_dummy::{SecretKeyStore, SecretKeyStoreConfiguratorFn};
 use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
@@ -91,6 +95,7 @@ pub struct SecretOptions {
   pub secret_key_store_configure_fn: Option<Box<SecretKeyStoreConfiguratorFn>>,
   pub load_secret_keys_from_env: bool,
   pub secret_key_env_prefix: Option<String>, // e.g., "C5_SECRETKEY_"
+  pub load_credentials_from_systemd: Vec<SystemdCredential>,
 }
 
 impl Default for SecretOptions {
@@ -101,6 +106,7 @@ impl Default for SecretOptions {
       secret_key_store_configure_fn: None,
       load_secret_keys_from_env: false,
       secret_key_env_prefix: Some("C5_SECRETKEY_".to_string()),
+      load_credentials_from_systemd: Vec::new(),
     };
   }
 }
@@ -655,9 +661,10 @@ pub fn create_c5store(
 
   #[cfg(feature = "secrets")]
   let secret_key_store = {
+
     let mut secret_key_store = SecretKeyStore::new();
 
-    if let Some(mut configure_fn) = options.secret_opts.secret_key_store_configure_fn {
+    if let Some(ref mut configure_fn) = options.secret_opts.secret_key_store_configure_fn {
       (configure_fn)(&mut secret_key_store);
     }
 
@@ -671,6 +678,8 @@ pub fn create_c5store(
         .unwrap_or("C5_SECRETKEY_");
       load_secret_keys_from_env(prefix, &mut secret_key_store);
     }
+
+    load_systemd_credentials(&options.secret_opts, &mut secret_key_store)?;
 
     secret_key_store
   };
@@ -1266,7 +1275,7 @@ mod tests {
 
   use ecies_25519::EciesX25519;
   use serde::Deserialize;
-use serial_test::serial;
+  use serial_test::serial;
 
   use crate::error::ConfigError;
   use crate::secrets::{Base64SecretDecryptor, EciesX25519SecretDecryptor, SecretKeyStore};
@@ -1466,7 +1475,8 @@ use serial_test::serial;
   }
 
   #[test]
-  #[serial]  fn test_get_into_struct_key_not_found() {
+  #[serial]
+  fn test_get_into_struct_key_not_found() {
     let (c5store, _c5store_mgr) = _create_c5store_test();
     let res = c5store.get_into_struct::<DbConfig>("non_existent_prefix");
     assert!(matches!(res, Err(ConfigError::KeyNotFound(_))));
@@ -1484,16 +1494,17 @@ use serial_test::serial;
     let res = c5store.get_into_struct::<FeatureFlags>("features");
     assert!(
       match &res {
-          Err(ConfigError::ConversionError { key, message }) => {
-              // The key from C5SerdeValueDeserializer is often empty or the direct field name.
-              // The message should be specific.
-              (key.is_empty() || key == "features" || key == "features.new_dashboard") &&
-              message.contains("'maybe' could not be converted to boolean")
-          },
-          _ => false,
+        Err(ConfigError::ConversionError { key, message }) => {
+          // The key from C5SerdeValueDeserializer is often empty or the direct field name.
+          // The message should be specific.
+          (key.is_empty() || key == "features" || key == "features.new_dashboard")
+            && message.contains("'maybe' could not be converted to boolean")
+        }
+        _ => false,
       },
-      "Expected ConversionError for 'maybe' string with specific message, got {:?}", res
-  );
+      "Expected ConversionError for 'maybe' string with specific message, got {:?}",
+      res
+    );
 
     env::remove_var("C5_FEATURES__NEW_DASHBOARD");
     env::remove_var("C5_FEATURES__API_V2");

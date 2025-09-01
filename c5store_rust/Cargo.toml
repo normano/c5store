@@ -40,7 +40,7 @@ skiplist = "^0.5"
 thiserror = "^2.0.12"
 toml = { version = "^0.8", optional = true }
 
-tokio = { version = "^1", features = ["fs", "macros", "rt-multi-thread"], optional = true  }
+tokio = { version = "^1", features = ["fs", "macros", "rt-multi-thread"], optional = true }
 reqwest = { version = "^0.12", optional = true }
 url = { version = "^2.3", optional = true  }
 
@@ -54,4 +54,5 @@ default = ["secrets"]
 dotenv = ["dep:dotenvy"]
 toml = ["dep:toml"]
 secrets = ["dep:ecies_25519", "dep:curve25519-parser", "dep:sha2"]
+secrets_systemd = ["secrets"]
 bootstrapper = [ "dep:reqwest", "dep:tokio", "dep:url"]
