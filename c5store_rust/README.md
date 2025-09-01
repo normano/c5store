@@ -2,7 +2,6 @@
 
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Crates.io](https://img.shields.io/crates/v/c5store.svg)](https://crates.io/crates/c5store)
-<!-- Add other badges here, e.g., Build Status -->
 
 C5Store is a Rust library providing a **unified store for configuration and secrets**. It aims to be a single point of access for your application's configuration needs, consolidating values from various sources (like YAML and TOML files or directories), handling environment variable overrides, managing secrets securely via built-in decryption, and allowing dynamic loading through providers.
 
@@ -18,7 +17,7 @@ The core idea is to simplify configuration management in complex applications by
 *   **Integrated Secrets Management (Optional Feature):**
     *   Transparently decrypt secrets defined within configuration files using the `.c5encval` key.
     *   Supports pluggable decryption algorithms (includes `base64` and `ecies_x25519`).
-    *   Securely load decryption keys from files (including `.pem`) or environment variables.
+    *   Securely load decryption keys from files (including `.pem`), environment variables, or **`systemd` credentials** (`secrets_systemd` feature on Linux).
 *   **Value Providers:** Defer loading of specific configuration sections to external sources (e.g., files) using a provider system. Includes a built-in `C5FileValueProvider`.
 *   **Periodic Refresh:** Value providers can be configured to automatically refresh their data at specified intervals.
 *   **Change Notifications:** Subscribe to changes in configuration values at specific key paths or their ancestors using `subscribe` (basic) or `subscribe_detailed` (includes old value). Notifications are debounced.
@@ -27,7 +26,7 @@ The core idea is to simplify configuration management in complex applications by
 *   **`.env` File Support (Optional Feature):** Load environment variables from `.env` files at startup.
 *   **Extensible:** Designed with traits for custom value providers and secret decryptors.
 *   **Telemetry Hooks:** Basic interfaces for integrating custom logging and statistics recording.
-*   **Optional Feature Flags:** Fine-tune dependencies (`dotenv`, `toml`, `secrets`).
+*   **Optional Feature Flags:** Fine-tune dependencies (`dotenv`, `toml`, `secrets`, `secrets_systemd`).
 
 ## Getting Started
 
@@ -36,13 +35,17 @@ The core idea is to simplify configuration management in complex applications by
     ```toml
     [dependencies]
     # Use the latest version
-    c5store = "0.3.1"
+    # On Linux, "secrets_systemd" is enabled by default.
+    c5store = "0.5.0"
 
     # Example enabling .env file support (optional)
-    # c5store = { version = "0.3.1", features = ["dotenv"] }
+    # c5store = { version = "0.5.0", features = ["dotenv"] }
 
-    # Example disabling default secrets support (optional, smaller binary)
-    # c5store = { version = "0.3.1", default-features = false }
+    # Example disabling default secrets features (optional, smaller binary)
+    # c5store = { version = "0.5.0", default-features = false }
+    
+    # On non-Linux, to use the systemd types for cross-compilation, enable it explicitly:
+    # c5store = { version = "0.5.0", features = ["secrets_systemd"] }
 
     # Other necessary dependencies
     serde = { version = "1", features = ["derive"] }
@@ -194,7 +197,7 @@ C5Store supports overriding configuration values using environment variables aft
 1.  **Environment Variables** (e.g., `C5_...`)
 2.  **Configuration Files/Directories** (processed in the order specified/discovered, with later files/directories overriding earlier ones).
 
-## Optional Features (`dotenv`, `toml`, `secrets`)
+## Optional Features (`dotenv`, `toml`, `secrets`, `secrets_systemd`)
 
 C5Store uses Cargo features to enable optional functionality:
 
@@ -208,23 +211,27 @@ C5Store uses Cargo features to enable optional functionality:
 *   **`secrets`**:
     *   Enables all secrets management functionality (loading `.c5encval`, `SecretOptions`, `SecretKeyStore`, decryptors).
     *   Requires crypto dependencies (`ecies_25519`, `curve25519-parser`, `sha2`).
-    *   **Enabled by default.** Disable using `default-features = false` if secrets are not needed.
+    *   **Enabled by default.**
+*   **`secrets_systemd`**:
+    *   Enables loading of decryption keys from `systemd`'s secure credential store.
+    *   Depends on the `secrets` feature.
+    *   **Enabled by default on Linux targets.**
 *   **`full`**:
-    *   Convenience feature to enable `dotenv`, `toml`, and `secrets`.
+    *   Convenience feature to enable `dotenv`, `toml`, `secrets`, and `secrets_systemd`.
 
 ```toml
 [dependencies]
 # Minimal - no .env, no secrets, no toml
-# c5store = { version = "0.3.1", default-features = false }
+# c5store = { version = "0.5.0", default-features = false }
 
-# Default - secrets and yaml enabled
-# c5store = "0.3.1"
+# Default - secrets and yaml enabled. On Linux, also enables secrets_systemd.
+# c5store = "0.5.0"
 
 # Enable all common features
-c5store = { version = "0.3.1", features = ["full"] }
+c5store = { version = "0.5.0", features = ["full"] }
 
 # Just enable .env support
-# c5store = { version = "0.3.1", default-features = false, features = ["dotenv"] }
+# c5store = { version = "0.5.0", default-features = false, features = ["dotenv"] }
 ```
 
 ## Secrets Management (`secrets` feature)
@@ -238,24 +245,33 @@ Secrets are defined using a special `.c5encval` key (configurable via `SecretOpt
 ```yaml
 # YAML Example
 some_secret_key:
-  .c5encval: ["<algorithm>", "<key_name>", "<base64_encrypted_data>"]
+  .c5encval: ["<algorithm>", "<ref_key_name>", "<base64_encrypted_data>"]
 
 # TOML Example
 # [some_secret_key]
-# ".c5encval" = ["<algorithm>", "<key_name>", "<base64_encrypted_data>"]
+# ".c5encval" = ["<algorithm>", "<ref_key_name>", "<base64_encrypted_data>"]
 ```
 
 *   **`<algorithm>`:** Name of registered `SecretDecryptor` (e.g., `"base64"`, `"ecies_x25519"`).
-*   **`<key_name>`:** Name used to look up the decryption key in the `SecretKeyStore`.
+*   **`<ref_key_name>`:** Name used to look up the decryption key in the `SecretKeyStore`.
 *   **`<base64_encrypted_data>`:** The secret value, encrypted and then Base64 encoded.
 
-**Configuration (`SecretOptions`):**
+**Key Loading Methods:**
 
-Configure secrets via the `secret_opts` field in `C5StoreOptions`.
+You can load decryption keys into `c5store` from three sources, configured via `SecretOptions`.
+
+1.  **From a Directory (`secret_keys_path`)**:
+    *   Loads key files from a specified directory. The filename (without extension) becomes the `ref_key_name`.
+2.  **From Environment Variables (`load_secret_keys_from_env`)**:
+    *   Loads keys from environment variables. The variable name (minus a prefix) becomes the `ref_key_name`.
+3.  **From `systemd` Credentials (`load_credentials_from_systemd`)**:
+    *   **(Linux-Only, `secrets_systemd` feature)** Securely loads keys that have been provisioned by `systemd`. This is the recommended method for production. See the dedicated section below.
+
+**Example Configuration (`SecretOptions`):**
 
 ```rust
 use c5store::{C5StoreOptions, SecretOptions, create_c5store};
-#[cfg(feature = "secrets")] // Only if using secrets explicitly
+#[cfg(feature = "secrets")]
 use c5store::secrets::{SecretKeyStore, Base64SecretDecryptor, EciesX25519SecretDecryptor};
 #[cfg(feature = "secrets")]
 use ecies_25519::EciesX25519;
@@ -269,7 +285,6 @@ let mut options = C5StoreOptions::default();
 {
     options.secret_opts = SecretOptions {
         // Path to directory containing decryption key files (e.g., .pem or raw bytes).
-        // Filename (without extension) becomes the key_name.
         secret_keys_path: Some(PathBuf::from("path/to/your/secret_keys")),
 
         // Override the special key identifying secrets. Default is ".c5encval"
@@ -290,6 +305,9 @@ let mut options = C5StoreOptions::default();
         // Prefix for environment variables holding keys (e.g., C5_SECRETKEY_MYAPIKEY).
         // Value should be base64 encoded key bytes. Default is "C5_SECRETKEY_"
         secret_key_env_prefix: None, // Keep default
+
+        // No systemd credentials in this example, so the default empty Vec is used.
+        ..Default::default()
     };
 }
 
@@ -302,6 +320,52 @@ match store.get_into::<Vec<u8>>("some_secret_key") { // Key is now the one *with
     Err(e) => println!("Failed to get/decrypt secret: {}", e),
 }
 ```
+
+### Secure Key Loading with `systemd` (`secrets_systemd` feature)
+
+*(Requires the `secrets_systemd` feature, enabled by default on Linux).*
+
+For production deployments on Linux, `c5store` can securely load its decryption key directly from the `systemd` credential store. This avoids having plaintext private keys on the filesystem.
+
+**Administrator Workflow:**
+
+1.  **Encrypt the Private Key for `systemd`**: On the target server, use `systemd-creds` to encrypt your private key file (e.g., `my_app.c5.key.pem`). The name `myapp.private.key` is the **credential name**.
+    ```bash
+    cat my_app.c5.key.pem | systemd-creds encrypt - /etc/credstore.encrypted/myapp.private.key
+    ```
+2.  **Configure the `systemd` Service**: Edit your application's service file to use the `LoadCredential=` directive. The name must match the one used above.
+    ```ini
+    # /etc/systemd/system/myapp.service
+    [Service]
+    DynamicUser=yes
+    LoadCredential=myapp.private.key
+    ExecStart=/usr/bin/myapp-server
+    ```
+    Run `systemctl daemon-reload` after saving.
+
+**Application Configuration:**
+
+Enable the feature in your application's `C5StoreOptions`.
+
+```rust
+use c5store::secrets::systemd::SystemdCredential;
+
+// ... inside setup code ...
+let mut options = C5StoreOptions::default();
+options.secret_opts.load_credentials_from_systemd = vec![
+  SystemdCredential {
+    // This MUST match the name in LoadCredential=
+    credential_name: "myapp.private.key".to_string(),
+    
+    // This MUST match the <ref_key_name> in your config.yaml
+    ref_key_name: "my_app".to_string(),
+  }
+];
+
+let (store, _mgr) = create_c5store(config_paths, Some(options))?;
+```
+
+At runtime, `systemd` will securely provide the decrypted key to `c5store`, which will then use it to decrypt any secrets in your configuration that reference the `"my_app"` key name.
 
 ## Value Providers
 
