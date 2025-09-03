@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2025-09-02
+
+### Added
+- Transparent deserialization of decrypted secrets when using get_into_struct
+
 ## [0.4.2] - 2025-09-01
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
@@ -47,6 +47,7 @@ url = { version = "^2.3", optional = true  }
 [dev-dependencies]
 serde_test = "^1.0"
 serial_test = "^3.2.0"
+tempfile = "^3"
 
 [features]
 full = ["dotenv", "toml", "secrets", "bootstrapper"]
@@ -56,3 +57,7 @@ toml = ["dep:toml"]
 secrets = ["dep:ecies_25519", "dep:curve25519-parser", "dep:sha2"]
 secrets_systemd = ["secrets"]
 bootstrapper = [ "dep:reqwest", "dep:tokio", "dep:url"]
+
+[[example]]
+name = "bootstrap"
+required-features = ["bootstrapper"]

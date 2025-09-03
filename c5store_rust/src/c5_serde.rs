@@ -80,6 +80,113 @@ pub(crate) mod de {
     };
   }
 
+  // Handles Integer, UInteger, String (via parse), and Bytes (via from_be_bytes)
+  macro_rules! deserialize_integer {
+    ($method:ident, $visit_method:ident, $target_type:ty) => {
+      fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+      where
+        V: Visitor<'de>,
+      {
+        match self.value {
+          C5DataValue::Integer(i) => visitor.$visit_method((*i).try_into().map_err(|e| {
+            de::Error::custom(format!(
+              "Integer {} out of range for {}: {}",
+              i,
+              stringify!($target_type),
+              e
+            ))
+          })?),
+          C5DataValue::UInteger(u) => visitor.$visit_method((*u).try_into().map_err(|e| {
+            de::Error::custom(format!(
+              "UInteger {} out of range for {}: {}",
+              u,
+              stringify!($target_type),
+              e
+            ))
+          })?),
+          C5DataValue::String(s) => visitor.$visit_method(s.parse::<$target_type>().map_err(|e| {
+            de::Error::custom(format!(
+              "Could not parse string '{}' as {}: {}",
+              s,
+              stringify!($target_type),
+              e
+            ))
+          })?),
+          C5DataValue::Bytes(b) => {
+            const TARGET_SIZE: usize = std::mem::size_of::<$target_type>();
+            if b.len() == TARGET_SIZE {
+              let val = <$target_type>::from_be_bytes(b.as_slice().try_into().unwrap());
+              visitor.$visit_method(val)
+            } else {
+              Err(de::Error::custom(format!(
+                "Expected {} bytes to deserialize into {}, found {}",
+                TARGET_SIZE,
+                stringify!($target_type),
+                b.len()
+              )))
+            }
+          }
+          _ => Err(ConfigError::TypeMismatch {
+            key: "".to_string(),
+            expected_type: concat!(
+              "Integer, UInteger, String, or Bytes (for ",
+              stringify!($target_type),
+              ")"
+            ),
+            found_type: self.value.type_name(),
+          }),
+        }
+      }
+    };
+  }
+
+  // Handles Float, Integer, UInteger, String (via parse), and Bytes (via from_be_bytes)
+  macro_rules! deserialize_float {
+    ($method:ident, $visit_method:ident, $target_type:ty) => {
+      fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+      where
+        V: Visitor<'de>,
+      {
+        match self.value {
+          C5DataValue::Float(f) => visitor.$visit_method(*f as $target_type),
+          C5DataValue::Integer(i) => visitor.$visit_method(*i as $target_type),
+          C5DataValue::UInteger(u) => visitor.$visit_method(*u as $target_type),
+          C5DataValue::String(s) => visitor.$visit_method(s.parse::<$target_type>().map_err(|e| {
+            de::Error::custom(format!(
+              "Could not parse string '{}' as {}: {}",
+              s,
+              stringify!($target_type),
+              e
+            ))
+          })?),
+          C5DataValue::Bytes(b) => {
+            const TARGET_SIZE: usize = std::mem::size_of::<$target_type>();
+            if b.len() == TARGET_SIZE {
+              let val = <$target_type>::from_be_bytes(b.as_slice().try_into().unwrap());
+              visitor.$visit_method(val)
+            } else {
+              Err(de::Error::custom(format!(
+                "Expected {} bytes to deserialize into {}, found {}",
+                TARGET_SIZE,
+                stringify!($target_type),
+                b.len()
+              )))
+            }
+          }
+          _ => Err(ConfigError::TypeMismatch {
+            key: "".to_string(),
+            expected_type: concat!(
+              "Float, Integer, UInteger, String, or Bytes (for ",
+              stringify!($target_type),
+              ")"
+            ),
+            found_type: self.value.type_name(),
+          }),
+        }
+      }
+    };
+  }
+
   impl<'de> Deserializer<'de> for C5SerdeValueDeserializer<'de> {
     // Changed 'a to 'de
     type Error = ConfigError;
@@ -101,9 +208,9 @@ pub(crate) mod de {
       }
     }
 
-    // Use the direct macro for bool and floats
-    deserialize_primitive_direct!(deserialize_f32, visit_f32, C5DataValue::Float, "Float (for f32)", f32);
-    deserialize_primitive_direct!(deserialize_f64, visit_f64, C5DataValue::Float, "Float (for f64)", f64);
+    // --- Smart Float Deserialization Methods ---
+    deserialize_float!(deserialize_f32, visit_f32, f32);
+    deserialize_float!(deserialize_f64, visit_f64, f64);
 
     // --- Custom Lenient Boolean Deserialization ---
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -168,121 +275,15 @@ pub(crate) mod de {
       }
     }
 
-    // --- Integer Deserialization Methods (allowing cross-conversion) ---
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::Integer(i) => visitor.visit_i8(*i as i8), // Add range check if strict
-        C5DataValue::UInteger(u) if *u <= i8::MAX as u64 => visitor.visit_i8(*u as i8),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for i8)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::Integer(i) => visitor.visit_i16(*i as i16), // Add range check
-        C5DataValue::UInteger(u) if *u <= i16::MAX as u64 => visitor.visit_i16(*u as i16),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for i16)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::Integer(i) => visitor.visit_i32(*i as i32), // Add range check
-        C5DataValue::UInteger(u) if *u <= i32::MAX as u64 => visitor.visit_i32(*u as i32),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for i32)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::Integer(i) => visitor.visit_i64(*i),
-        C5DataValue::UInteger(u) if *u <= i64::MAX as u64 => visitor.visit_i64(*u as i64),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for i64)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-
-    // --- Unsigned Integer Deserialization Methods (allowing cross-conversion) ---
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::UInteger(u) => visitor.visit_u8(*u as u8), // Add range check
-        C5DataValue::Integer(i) if *i >= 0 && *i <= u8::MAX as i64 => visitor.visit_u8(*i as u8),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for u8)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::UInteger(u) => visitor.visit_u16(*u as u16), // Add range check
-        C5DataValue::Integer(i) if *i >= 0 && *i <= u16::MAX as i64 => visitor.visit_u16(*i as u16),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for u16)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::UInteger(u) => visitor.visit_u32(*u as u32), // Add range check
-        C5DataValue::Integer(i) if *i >= 0 && *i <= u32::MAX as i64 => visitor.visit_u32(*i as u32),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for u32)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-      V: Visitor<'de>,
-    {
-      match self.value {
-        C5DataValue::UInteger(u) => visitor.visit_u64(*u),
-        C5DataValue::Integer(i) if *i >= 0 => visitor.visit_u64(*i as u64),
-        _ => Err(ConfigError::TypeMismatch {
-          key: "".to_string(),
-          expected_type: "Integer/UInteger (for u64)",
-          found_type: self.value.type_name(),
-        }),
-      }
-    }
+    // --- Smart Integer Deserialization Methods ---
+    deserialize_integer!(deserialize_i8, visit_i8, i8);
+    deserialize_integer!(deserialize_i16, visit_i16, i16);
+    deserialize_integer!(deserialize_i32, visit_i32, i32);
+    deserialize_integer!(deserialize_i64, visit_i64, i64);
+    deserialize_integer!(deserialize_u8, visit_u8, u8);
+    deserialize_integer!(deserialize_u16, visit_u16, u16);
+    deserialize_integer!(deserialize_u32, visit_u32, u32);
+    deserialize_integer!(deserialize_u64, visit_u64, u64);
 
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -298,11 +299,71 @@ pub(crate) mod de {
       }
     }
 
-    // Use the direct macro for strings and bytes
-    deserialize_primitive_direct!(deserialize_str, visit_borrowed_str, C5DataValue::String, "String", ref |s: &'de String| s.as_str());
-    deserialize_primitive_direct!(deserialize_string, visit_string, C5DataValue::String, "String");
-    deserialize_primitive_direct!(deserialize_bytes, visit_borrowed_bytes, C5DataValue::Bytes, "Bytes", ref |b: &'de Vec<u8>| b.as_slice());
-    deserialize_primitive_direct!(deserialize_byte_buf, visit_byte_buf, C5DataValue::Bytes, "Bytes");
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      match self.value {
+        C5DataValue::String(s) => visitor.visit_borrowed_str(s),
+        C5DataValue::Bytes(b) => match std::str::from_utf8(b) {
+          Ok(s) => visitor.visit_borrowed_str(s),
+          Err(e) => Err(de::Error::custom(format!("decrypted bytes are not valid UTF-8: {}", e))),
+        },
+        _ => Err(ConfigError::TypeMismatch {
+          key: "".to_string(),
+          expected_type: "String or Bytes (for &str)",
+          found_type: self.value.type_name(),
+        }),
+      }
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      match self.value {
+        C5DataValue::String(s) => visitor.visit_string(s.clone()),
+        C5DataValue::Bytes(b) => match String::from_utf8(b.clone()) {
+          Ok(s) => visitor.visit_string(s),
+          Err(e) => Err(de::Error::custom(format!("decrypted bytes are not valid UTF-8: {}", e))),
+        },
+        _ => Err(ConfigError::TypeMismatch {
+          key: "".to_string(),
+          expected_type: "String or Bytes (for String)",
+          found_type: self.value.type_name(),
+        }),
+      }
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      match self.value {
+        C5DataValue::Bytes(b) => visitor.visit_borrowed_bytes(b),
+        C5DataValue::String(s) => visitor.visit_borrowed_bytes(s.as_bytes()),
+        _ => Err(ConfigError::TypeMismatch {
+          key: "".to_string(),
+          expected_type: "Bytes or String (for &[u8])",
+          found_type: self.value.type_name(),
+        }),
+      }
+    }
+
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      match self.value {
+        C5DataValue::Bytes(b) => visitor.visit_byte_buf(b.clone()),
+        C5DataValue::String(s) => visitor.visit_byte_buf(s.as_bytes().to_vec()),
+        _ => Err(ConfigError::TypeMismatch {
+          key: "".to_string(),
+          expected_type: "Bytes or String (for Vec<u8>)",
+          found_type: self.value.type_name(),
+        }),
+      }
+    }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -346,15 +407,39 @@ pub(crate) mod de {
     where
       V: Visitor<'de>,
     {
+      println!(
+        "[c5_serde] >> Calling deserialize_seq on value {:?}",
+        self.value.type_name()
+      );
       match self.value {
-        // self.value is &'de C5DataValue
-        C5DataValue::Array(arr) => {
-          // arr is &'de Vec<C5DataValue>
-          visitor.visit_seq(C5SeqAccess::new(arr)) // C5SeqAccess needs 'de
+        C5DataValue::Array(arr) => visitor.visit_seq(C5SeqAccess::new(arr)),
+        C5DataValue::Bytes(b) => {
+          // Create a SeqAccess that deserializes each byte directly.
+          struct BytesSeqAccess<'a> {
+            iter: std::slice::Iter<'a, u8>,
+          }
+
+          impl<'de, 'a> SeqAccess<'de> for BytesSeqAccess<'a> {
+            type Error = ConfigError;
+
+            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+            where
+              T: de::DeserializeSeed<'de>,
+            {
+              match self.iter.next() {
+                Some(&byte) => {
+                  // Deserialize a single u8 directly.
+                  seed.deserialize(byte.into_deserializer()).map(Some)
+                }
+                None => Ok(None),
+              }
+            }
+          }
+          visitor.visit_seq(BytesSeqAccess { iter: b.iter() })
         }
         _ => Err(ConfigError::TypeMismatch {
           key: String::from(""),
-          expected_type: "Array",
+          expected_type: "Array or Bytes",
           found_type: self.value.type_name(),
         }),
       }
