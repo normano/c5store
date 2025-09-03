@@ -43,11 +43,11 @@ use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
 use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
 #[cfg(feature = "secrets")]
+use crate::secrets::systemd::load_systemd_credentials;
+#[cfg(feature = "secrets")]
 use crate::secrets::systemd::SystemdCredential;
 #[cfg(feature = "secrets")]
 use crate::secrets::SecretKeyStore;
-#[cfg(feature = "secrets")]
-use crate::secrets::systemd::load_systemd_credentials;
 #[cfg(not(feature = "secrets"))]
 use crate::secrets_dummy::{SecretKeyStore, SecretKeyStoreConfiguratorFn};
 use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
@@ -661,7 +661,6 @@ pub fn create_c5store(
 
   #[cfg(feature = "secrets")]
   let secret_key_store = {
-
     let mut secret_key_store = SecretKeyStore::new();
 
     if let Some(ref mut configure_fn) = options.secret_opts.secret_key_store_configure_fn {
@@ -1271,11 +1270,14 @@ pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, regi
 #[cfg(test)]
 mod tests {
   use std::env;
+  use std::io::Write;
   use std::path::PathBuf;
 
   use ecies_25519::EciesX25519;
+  use maplit::hashmap;
   use serde::Deserialize;
   use serial_test::serial;
+  use tempfile::NamedTempFile;
 
   use crate::error::ConfigError;
   use crate::secrets::{Base64SecretDecryptor, EciesX25519SecretDecryptor, SecretKeyStore};
@@ -1303,6 +1305,11 @@ mod tests {
 
   fn default_retries() -> u8 {
     3
+  }
+
+  fn _create_c5store_test() -> (impl C5Store, C5StoreMgr) {
+    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
+    create_c5store(config_file_paths, None).expect("Test store creation failed")
   }
 
   #[test]
@@ -1581,8 +1588,105 @@ mod tests {
     assert_eq!(c5store.get("bad_secret"), None);
   }
 
-  fn _create_c5store_test() -> (impl C5Store, C5StoreMgr) {
-    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
-    create_c5store(config_file_paths, None).expect("Test store creation failed")
+  #[test]
+  #[serial]
+  #[cfg(feature = "secrets")]
+  fn test_decryption_pipeline_populates_store_correctly() {
+    // --- STAGE 1: Test that the full file->decrypt->store pipeline works ---
+    println!("\n--- TEST: Verifying decryption pipeline populates the store ---");
+
+    // 1. Configure the store with the real decryptor
+    let mut options = C5StoreOptions::default();
+    options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
+      store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+      store.set_key("dummy_key", vec![1, 2, 3]);
+    }));
+
+    // 2. Load the store from the correctly formatted test file
+    let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
+
+    // 3. Assert the final state of the store after decryption
+    println!("\n--- Asserting final store state ---");
+
+    // Assert plaintext values were loaded
+    assert_eq!(
+      c5store.get("database.host").unwrap(),
+      C5DataValue::String("db.prod.com".to_string())
+    );
+
+    // Assert that the DECRYPTED values are in the store with the correct type (Bytes)
+    assert_eq!(
+      c5store.get("secrets.api_key").unwrap(),
+      C5DataValue::Bytes("secret-key-123".as_bytes().to_vec())
+    );
+    assert_eq!(
+      c5store.get("secrets.app_id").unwrap(),
+      C5DataValue::Bytes(55_u32.to_be_bytes().to_vec())
+    );
+    assert_eq!(
+      c5store.get("secrets.timeout").unwrap(),
+      C5DataValue::Bytes(2.0_f64.to_be_bytes().to_vec())
+    );
+    assert_eq!(
+      c5store.get("secrets.raw_key").unwrap(),
+      C5DataValue::Bytes("byte-data".as_bytes().to_vec())
+    );
+
+    // Assert that the ORIGINAL ENCRYPTED VALUES ARE GONE
+    assert!(!c5store.exists("secrets.api_key.c5encval"));
+
+    println!("✅ Stage 1 Passed: Store is populated correctly from decrypted secrets.");
+  }
+
+  #[test]
+  #[serial]
+  #[cfg(feature = "secrets")]
+  fn test_end_to_end_deserialization_with_secrets() {
+   use crate::secrets::Base64SecretDecryptor;
+
+    // --- 1. Define the Target Structs ---
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct FullConfig {
+        database: DatabaseConfig,
+        secrets: SecretsConfig,
+    }
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct DatabaseConfig {
+        host: String,
+        port: u16,
+    }
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct SecretsConfig {
+        api_key: String,
+        app_id: u32,
+        timeout: f64,
+        raw_key: Vec<u8>,
+    }
+
+    // --- 2. Configure C5StoreOptions with the REAL Base64SecretDecryptor ---
+    let mut options = C5StoreOptions::default();
+    options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
+        store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+        store.set_key("dummy_key", vec![1, 2, 3]);
+    }));
+
+    // --- 3. Load the Store from our correctly formatted test file ---
+    let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options))
+        .expect("Store creation failed");
+
+    // --- 4. Perform Deserialization and Assertions ---
+    let config = c5store.get_into_struct::<FullConfig>("").expect("Deserialization failed");
+
+    // Assert plaintext values are correct
+    assert_eq!(config.database.host, "db.prod.com");
+    assert_eq!(config.database.port, 5432);
+
+    // Assert that all secrets were decrypted and deserialized correctly
+    assert_eq!(config.secrets.api_key, "secret-key-123");
+    assert_eq!(config.secrets.app_id, 55);
+    assert_eq!(config.secrets.timeout, 2.0);
+    assert_eq!(config.secrets.raw_key, "byte-data".as_bytes());
   }
 }
