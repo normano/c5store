@@ -412,3 +412,84 @@ fn test_encrypt_fails_on_zero_match_query() -> Result<(), Box<dyn std::error::Er
 
   Ok(())
 }
+
+// Add this at the end of cli/c5cli/tests/cli_encrypt_tests.rs
+
+#[test]
+#[serial]
+fn test_encrypt_replaces_existing_scalar_value() -> Result<(), Box<dyn std::error::Error>> {
+  let test_dir = tempdir()?;
+  let config_root = test_dir.path();
+  let keys_dir = test_dir.path().join("keys");
+  fs::create_dir(&keys_dir)?;
+
+  // 1. Setup keys
+  let (pub_key_path, priv_key_path) = setup_test_c5_keys(&keys_dir, "replace_key")?;
+  let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
+  let priv_key_name = priv_key_path.file_name().unwrap().to_str().unwrap();
+
+  // 2. Setup initial config with a plaintext scalar value
+  let config_file_path = config_root.join("replace_config.yaml");
+  let initial_yaml_content = r#"
+users:
+  - name: testuser
+    credentials:
+      - type: password
+        value: "old_plaintext_password"
+"#;
+  fs::write(&config_file_path, initial_yaml_content)?;
+
+  let new_secret_value = "SupaDupaS3cr3t!";
+
+  // 3. Run encrypt command to replace the 'value' key
+  let mut cmd_encrypt = c5cli_cmd();
+  cmd_encrypt
+    .arg("encrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg(pub_key_name)
+    .arg("users[0].credentials[0].value") // Target the existing scalar key
+    .arg("-v")
+    .arg(new_secret_value)
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--public-key-dir")
+    .arg(&keys_dir)
+    .arg("--commit");
+
+  cmd_encrypt.assert().success();
+
+  // 4. Assert the structure has been correctly modified
+  let final_content = fs::read_to_string(&config_file_path)?;
+  let doc: serde_yaml::Value = serde_yaml::from_str(&final_content)?;
+
+  let value_node = &doc["users"][0]["credentials"][0]["value"];
+  assert!(
+    value_node.is_mapping(),
+    "The 'value' node should have been replaced with a map"
+  );
+
+  let c5encval_node = &value_node[".c5encval"];
+  assert!(c5encval_node.is_sequence(), "'.c5encval' should be a sequence");
+  assert_eq!(c5encval_node[1].as_str().unwrap(), "replace_key.c5");
+
+  // 5. (Bonus) Decrypt to verify the *content* is correct
+  let output_file = test_dir.path().join("decrypted.txt");
+  let mut cmd_decrypt = c5cli_cmd();
+  cmd_decrypt
+    .arg("decrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg("users[0].credentials[0].value")
+    .arg(priv_key_name)
+    .arg(&output_file)
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--private-key-dir")
+    .arg(&keys_dir);
+
+  cmd_decrypt.assert().success();
+
+  let decrypted_content = fs::read_to_string(&output_file)?;
+  assert_eq!(decrypted_content, new_secret_value);
+
+  Ok(())
+}
