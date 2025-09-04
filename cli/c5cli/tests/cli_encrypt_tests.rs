@@ -1,10 +1,10 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use serial_test::serial;
-use std::{fs, path::PathBuf};
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::{fs, path::PathBuf};
 use tempfile::{tempdir, NamedTempFile};
 
 fn c5cli_cmd() -> Command {
@@ -57,10 +57,13 @@ fn test_encrypt_value_dry_run() -> Result<(), Box<dyn std::error::Error>> {
     .arg("--public-key-dir")
     .arg(test_dir.path()); // Assuming pub key was generated in test_dir directly by helper
 
-    cmd.assert()
+  cmd
+    .assert()
     .success()
     .stdout(predicate::str::contains("----- DRY RUN - Encrypt -----"))
-    .stdout(predicate::str::contains("The secret key '.c5encval' under YAML path 'app.secret.password' would be updated/created."))
+    .stdout(predicate::str::contains(
+      "The secret key '.c5encval' under YAML path 'app.secret.password' would be updated/created.",
+    ))
     .stdout(predicate::str::contains("Full resulting YAML content:"))
     .stdout(predicate::str::contains("app:"))
     .stdout(predicate::str::contains("  secret:"))
@@ -243,5 +246,169 @@ fn test_encrypt_reencrypt() -> Result<(), Box<dyn std::error::Error>> {
 
   // Optional: Try to decrypt with the new private key (if we had it)
   // or decrypt with old private key (should fail)
+  Ok(())
+}
+
+#[test]
+#[serial]
+fn test_encrypt_into_array_by_index() -> Result<(), Box<dyn std::error::Error>> {
+  let test_dir = tempdir()?;
+  let config_root = test_dir.path();
+  let keys_dir = test_dir.path().join("keys");
+  fs::create_dir(&keys_dir)?;
+
+  let (pub_key_path, _) = setup_test_c5_keys(&keys_dir, "idx_key")?;
+  let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
+
+  let config_file_path = config_root.join("array_config.yaml");
+  fs::write(&config_file_path, "users:\n  - name: alice\n  - name: bob\n")?;
+
+  let mut cmd = c5cli_cmd();
+  cmd
+    .arg("encrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg(pub_key_name)
+    .arg("users[0].token") // Use array index syntax
+    .arg("-v")
+    .arg("alices_secret_token")
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--public-key-dir")
+    .arg(&keys_dir)
+    .arg("--commit");
+
+  cmd.assert().success();
+
+  let content = fs::read_to_string(&config_file_path)?;
+  // Use serde_yaml to parse and inspect the structure for robustness
+  let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
+
+  // Check Alice (users[0])
+  let alice_token = &doc["users"][0]["token"][".c5encval"];
+  assert!(alice_token.is_sequence());
+  assert_eq!(alice_token[1].as_str().unwrap(), "idx_key.c5");
+
+  // Check Bob (users[1]) - should NOT have a token
+  assert!(&doc["users"][1]["token"].is_null()); // Accessing a non-existent key in serde_yaml yields Null.
+
+  Ok(())
+}
+
+#[test]
+#[serial]
+fn test_encrypt_into_array_by_query() -> Result<(), Box<dyn std::error::Error>> {
+  let test_dir = tempdir()?;
+  let config_root = test_dir.path();
+  let keys_dir = test_dir.path().join("keys");
+  fs::create_dir(&keys_dir)?;
+
+  let (pub_key_path, _) = setup_test_c5_keys(&keys_dir, "query_key")?;
+  let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
+
+  let config_file_path = config_root.join("query_config.yaml");
+  fs::write(
+    &config_file_path,
+    "users:\n  - name: alice\n    role: user\n  - name: bob\n    role: admin\n",
+  )?;
+
+  let mut cmd = c5cli_cmd();
+  cmd
+    .arg("encrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg(pub_key_name)
+    .arg("users[name=\"bob\"].token") // Use query syntax
+    .arg("-v")
+    .arg("bobs_admin_token")
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--public-key-dir")
+    .arg(&keys_dir)
+    .arg("--commit");
+
+  cmd.assert().success();
+
+  let content = fs::read_to_string(&config_file_path)?;
+  let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
+
+  // Check Bob (the queried user)
+  let bob_token = &doc["users"][1]["token"][".c5encval"];
+  assert!(bob_token.is_sequence());
+  assert_eq!(bob_token[1].as_str().unwrap(), "query_key.c5");
+
+  // Check Alice - should NOT have a token
+  assert!(&doc["users"][0]["token"].is_null());
+
+  Ok(())
+}
+
+#[test]
+#[serial]
+fn test_encrypt_fails_on_non_unique_query() -> Result<(), Box<dyn std::error::Error>> {
+  let test_dir = tempdir()?;
+  let config_root = test_dir.path();
+  let keys_dir = test_dir.path().join("keys");
+  fs::create_dir(&keys_dir)?;
+
+  let (pub_key_path, _) = setup_test_c5_keys(&keys_dir, "multi_query_key")?;
+  let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
+
+  let config_file_path = config_root.join("multi_query_config.yaml");
+  fs::write(
+    &config_file_path,
+    "users:\n  - role: admin\n  - role: user\n  - role: admin\n",
+  )?;
+
+  let mut cmd = c5cli_cmd();
+  cmd
+    .arg("encrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg(pub_key_name)
+    .arg("users[role=\"admin\"].key") // This query matches 2 objects
+    .arg("-v")
+    .arg("some_key_value")
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--public-key-dir")
+    .arg(&keys_dir);
+
+  cmd.assert().failure().stderr(predicate::str::contains(
+    "Query '[role=admin]' matched multiple objects",
+  ));
+
+  Ok(())
+}
+
+#[test]
+#[serial]
+fn test_encrypt_fails_on_zero_match_query() -> Result<(), Box<dyn std::error::Error>> {
+  let test_dir = tempdir()?;
+  let config_root = test_dir.path();
+  let keys_dir = test_dir.path().join("keys");
+  fs::create_dir(&keys_dir)?;
+
+  let (pub_key_path, _) = setup_test_c5_keys(&keys_dir, "zero_query_key")?;
+  let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
+
+  let config_file_path = config_root.join("zero_query_config.yaml");
+  fs::write(&config_file_path, "users:\n  - name: alice\n")?;
+
+  let mut cmd = c5cli_cmd();
+  cmd
+    .arg("encrypt")
+    .arg(config_file_path.file_name().unwrap())
+    .arg(pub_key_name)
+    .arg("users[name=\"bob\"].token") // This query matches 0 objects
+    .arg("-v")
+    .arg("no_one_gets_this_token")
+    .arg("--config-root-dir")
+    .arg(&config_root)
+    .arg("--public-key-dir")
+    .arg(&keys_dir);
+
+  cmd
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("Query '[name=bob]' matched no objects"));
+
   Ok(())
 }
