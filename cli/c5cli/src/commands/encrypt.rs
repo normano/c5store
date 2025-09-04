@@ -1,16 +1,9 @@
 use c5_core::{
-  base64_string_to_bytes,
-  bytes_to_base64_string,
-  decrypt_data,
-  encrypt_data,
-  format_c5_secret_array,
+  base64_string_to_bytes, bytes_to_base64_string, decrypt_data, encrypt_data, format_c5_secret_array,
   io_utils::{read_file_to_bytes, write_string_to_file},
-  load_ecies_private_key,
-  load_ecies_public_key,
-  parse_c5_secret_array,
+  load_ecies_private_key, load_ecies_public_key, parse_c5_secret_array,
   yaml_utils::{dump_yaml_to_string, load_yaml_from_string},
-  C5CoreError,
-  CryptoAlgorithm as CoreCryptoAlgo,
+  C5CoreError, CryptoAlgorithm as CoreCryptoAlgo,
 };
 use clap::Args;
 use rand::rngs::StdRng;
@@ -19,18 +12,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use yaml_rust2::{yaml::Hash as YamlHash, Yaml};
 
-use crate::{path_parser::{parse_path, PathSegment}, CliCryptoAlgorithm};
+use crate::{
+  path_parser::{parse_path, PathSegment},
+  CliCryptoAlgorithm,
+};
 
 #[derive(Args, Debug)]
-#[clap(
-    after_help = "EXAMPLES:\n\
+#[clap(after_help = "EXAMPLES:\n\
     # Dry-run: Encrypt a password into 'config/dev.yaml' at path 'db.password'\n\
     c5cli encrypt dev.yaml my_key.pub.pem db.password -v 's3cr3t!'\n\n\
     # Commit the encryption of a file's content into an array element\n\
     c5cli encrypt prod.yaml prod.pub.pem 'users[0].ssh_key' -f ~/.ssh/id_rsa.pub --commit\n\n\
     # Re-encrypt an existing secret with a new key\n\
-    c5cli encrypt app.yaml new.pub.pem app.token --reencrypt --old-private-key-file config/keys/old.key.pem --commit"
-)]
+    c5cli encrypt app.yaml new.pub.pem app.token --reencrypt --old-private-key-file config/keys/old.key.pem --commit")]
 pub struct EncryptArgs {
   #[arg(value_name = "CONFIG_FILE_NAME")]
   pub config_file_name: String,
@@ -337,20 +331,14 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
       if parent_node.is_null() {
         *parent_node = Yaml::Hash(YamlHash::new());
       }
-      if let Yaml::Hash(map) = parent_node {
-        let secret_key_node = Yaml::String(args.secret_segment.clone());
-        let final_value_node = map
-          .entry(Yaml::String(key.to_string()))
-          .or_insert(Yaml::Hash(YamlHash::new()));
 
-        if let Yaml::Hash(value_map) = final_value_node {
-          value_map.insert(secret_key_node, secret_yaml_value_to_set);
-        } else {
-          return Err(C5CoreError::YamlNavigation(format!(
-            "Final key '{}' exists but is not a Map, cannot insert secret segment.",
-            key
-          )));
-        }
+      if let Yaml::Hash(map) = parent_node {
+        // Create the new map that will hold the secret.
+        let mut secret_map = YamlHash::new();
+        secret_map.insert(Yaml::String(args.secret_segment.clone()), secret_yaml_value_to_set);
+
+        // Unconditionally insert/replace the final key with our new secret map.
+        map.insert(Yaml::String(key.to_string()), Yaml::Hash(secret_map));
       } else {
         return Err(C5CoreError::YamlNavigation(format!(
           "Cannot insert final key '{}' because parent is not a Map.",
