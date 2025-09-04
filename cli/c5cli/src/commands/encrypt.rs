@@ -1,33 +1,36 @@
-// c5cli/src/commands/encrypt.rs
 use c5_core::{
   base64_string_to_bytes,
   bytes_to_base64_string,
   decrypt_data,
   encrypt_data,
   format_c5_secret_array,
-  io_utils::{read_file_to_bytes, /*read_file_to_string,*/ write_string_to_file}, // read_file_to_string not used if value is always bytes for crypto
+  io_utils::{read_file_to_bytes, write_string_to_file},
   load_ecies_private_key,
   load_ecies_public_key,
   parse_c5_secret_array,
-  yaml_utils::{dump_yaml_to_string, get_yaml_value_at_path, load_yaml_from_string, set_yaml_value_at_path},
+  yaml_utils::{dump_yaml_to_string, load_yaml_from_string},
   C5CoreError,
-  C5SecretValueParts,
   CryptoAlgorithm as CoreCryptoAlgo,
-  EciesPublicKey,
-  EciesStaticSecret,
 };
 use clap::Args;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::fs;
 use std::path::{Path, PathBuf};
-use yaml_rust2::{Yaml, yaml::Hash as YamlHash}; 
+use yaml_rust2::{yaml::Hash as YamlHash, Yaml};
 
-// Assuming CliCryptoAlgorithm is defined in c5cli/src/main.rs or shared types
-use crate::CliCryptoAlgorithm;
+use crate::{path_parser::{parse_path, PathSegment}, CliCryptoAlgorithm};
 
-// EncryptArgs struct as defined before...
 #[derive(Args, Debug)]
+#[clap(
+    after_help = "EXAMPLES:\n\
+    # Dry-run: Encrypt a password into 'config/dev.yaml' at path 'db.password'\n\
+    c5cli encrypt dev.yaml my_key.pub.pem db.password -v 's3cr3t!'\n\n\
+    # Commit the encryption of a file's content into an array element\n\
+    c5cli encrypt prod.yaml prod.pub.pem 'users[0].ssh_key' -f ~/.ssh/id_rsa.pub --commit\n\n\
+    # Re-encrypt an existing secret with a new key\n\
+    c5cli encrypt app.yaml new.pub.pem app.token --reencrypt --old-private-key-file config/keys/old.key.pem --commit"
+)]
 pub struct EncryptArgs {
   #[arg(value_name = "CONFIG_FILE_NAME")]
   pub config_file_name: String,
@@ -230,79 +233,135 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
   let pk_filename_only = Path::new(&args.public_key_file_name)
     .file_name()
     .and_then(|name| name.to_str())
-    .unwrap_or(&args.public_key_file_name); // Fallback to full name if no stem
+    .unwrap_or(&args.public_key_file_name);
   let secret_yaml_value_to_set = format_c5_secret_array(core_algo, pk_filename_only, new_b64_ciphertext)?;
 
-  // Get a mutable reference to the parent map specified by args.key_path
-  let mut parent_map_mut_ref = &mut yaml_doc_root;
-  if !args.key_path.is_empty() {
-    for part_str in args.key_path.split('.') {
-      if part_str.is_empty() {
-        return Err(C5CoreError::YamlNavigation(format!(
-          "Invalid empty segment in key_path: '{}'",
-          args.key_path
-        )));
-      }
-      let key_yaml_segment = Yaml::String(part_str.to_string());
+  // --- NEW: ADVANCED PATH TRAVERSAL AND INSERTION ---
+  let segments = parse_path(&args.key_path)?;
+  if segments.is_empty() {
+    return Err(C5CoreError::InvalidInput(
+      "An empty key path is not valid for encryption.".into(),
+    ));
+  }
 
-      if parent_map_mut_ref.is_null() {
-        *parent_map_mut_ref = Yaml::Hash(YamlHash::new());
-      } else if !parent_map_mut_ref.is_hash() {
-        let current_node_type_str = match parent_map_mut_ref {
-          /* ... get type string ... */ _ => "Non-Hash",
-        };
-        return Err(C5CoreError::YamlNavigation(format!(
-          "Path segment '{}' in key_path '{}' is not a map (Hash), but a {}.",
-          part_str, args.key_path, current_node_type_str
-        )));
-      }
+  let (final_key_segment, parent_segments) = segments.split_last().unwrap(); // Safe due to check above
 
-      match parent_map_mut_ref {
-        Yaml::Hash(map) => {
-          parent_map_mut_ref = map
-            .entry(key_yaml_segment)
-            .or_insert_with(|| Yaml::Hash(YamlHash::new()));
+  // Traverse to find the parent node that will hold the final key
+  let mut parent_node = &mut yaml_doc_root;
+  for (i, segment) in parent_segments.iter().enumerate() {
+    let current_path_trace = || {
+      segments[..=i]
+        .iter()
+        .map(|s| format!("{:?}", s))
+        .collect::<Vec<_>>()
+        .join("")
+    };
+
+    match segment {
+      PathSegment::Key(key) => {
+        if parent_node.is_null() {
+          *parent_node = Yaml::Hash(YamlHash::new());
         }
-        _ => unreachable!("Should be a Hash due to checks above"),
+        parent_node = match parent_node {
+          Yaml::Hash(map) => map.entry(Yaml::String(key.to_string())).or_insert(Yaml::Null),
+          _ => {
+            return Err(C5CoreError::YamlNavigation(format!(
+              "Expected a Map to access key '{}' (at path trace: {}), but found a different type.",
+              key,
+              current_path_trace()
+            )))
+          }
+        };
+      }
+      PathSegment::Index(index) => {
+        parent_node = match parent_node {
+          Yaml::Array(arr) => arr.get_mut(*index).ok_or_else(|| {
+            C5CoreError::YamlNavigation(format!(
+              "Index {} is out of bounds (at path trace: {}).",
+              index,
+              current_path_trace()
+            ))
+          })?,
+          _ => {
+            return Err(C5CoreError::YamlNavigation(format!(
+              "Expected an Array for index access [{}] (at path trace: {}), but found a different type.",
+              index,
+              current_path_trace()
+            )))
+          }
+        };
+      }
+      PathSegment::Query { key, value } => {
+        let mut found_node = None;
+        if let Yaml::Array(arr) = parent_node {
+          for item in arr.iter_mut() {
+            if let Some(map) = item.as_hash() {
+              if let Some(val_node) = map.get(&Yaml::String(key.to_string())) {
+                if val_node.as_str() == Some(value) {
+                  if found_node.is_some() {
+                    return Err(C5CoreError::YamlNavigation(format!(
+                      "Query '[{}={}]' matched multiple objects. Path must be unique for encryption.",
+                      key, value
+                    )));
+                  }
+                  found_node = Some(item);
+                }
+              }
+            }
+          }
+        } else {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Expected an Array for query '[{}={}]' (at path trace: {}), but found a different type.",
+            key,
+            value,
+            current_path_trace()
+          )));
+        }
+
+        if let Some(node) = found_node {
+          parent_node = node;
+        } else {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Query '[{}={}]' matched no objects. Cannot encrypt.",
+            key, value
+          )));
+        }
       }
     }
   }
 
-  // Now parent_map_mut_ref refers to the Yaml node that should be the parent map.
-  // Insert the actual secret key (e.g., ".c5encval") into this map.
-  match parent_map_mut_ref {
-    Yaml::Hash(map) => {
-      map.insert(Yaml::String(args.secret_segment.clone()), secret_yaml_value_to_set);
-    }
-    _ => {
-      // This handles if key_path was empty and root wasn't a map (e.g. was Null from empty file)
-      if args.key_path.is_empty() {
-        if yaml_doc_root.is_null() || !yaml_doc_root.is_hash() {
-          // If root was null or some scalar
-          yaml_doc_root = Yaml::Hash(YamlHash::new()); // Make root a hash
-        }
-        // Now yaml_doc_root is guaranteed to be a Hash if it was Null, or it was already a Hash.
-        // If it was some other type (scalar, array), this won't convert it, leading to an error.
-        // A more robust way if root could be non-Null, non-Hash:
-        // *yaml_doc_root = Yaml::Hash(new_map_with_secret_inserted);
-        match &mut yaml_doc_root {
-          // Match again on potentially replaced yaml_doc_root
-          Yaml::Hash(root_map) => {
-            root_map.insert(Yaml::String(args.secret_segment.clone()), secret_yaml_value_to_set);
-          }
-          _ => {
-            return Err(C5CoreError::YamlNavigation(
-              "Root of YAML is not a map and could not be converted, cannot insert secret segment.".to_string(),
-            ))
-          }
+  // Now, `parent_node` is the mutable reference to the map or object where we'll insert the final key.
+  // The final segment determines what to do inside this parent.
+  match final_key_segment {
+    PathSegment::Key(key) => {
+      if parent_node.is_null() {
+        *parent_node = Yaml::Hash(YamlHash::new());
+      }
+      if let Yaml::Hash(map) = parent_node {
+        let secret_key_node = Yaml::String(args.secret_segment.clone());
+        let final_value_node = map
+          .entry(Yaml::String(key.to_string()))
+          .or_insert(Yaml::Hash(YamlHash::new()));
+
+        if let Yaml::Hash(value_map) = final_value_node {
+          value_map.insert(secret_key_node, secret_yaml_value_to_set);
+        } else {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Final key '{}' exists but is not a Map, cannot insert secret segment.",
+            key
+          )));
         }
       } else {
-        // This implies the path traversal for key_path ended on a non-Hash node that wasn't Null
         return Err(C5CoreError::YamlNavigation(format!(
-          "Target for key_path '{}' did not resolve to a writable map.",
-          args.key_path
+          "Cannot insert final key '{}' because parent is not a Map.",
+          key
         )));
       }
+    }
+    _ => {
+      return Err(C5CoreError::InvalidInput(
+        "The final segment of a path for encryption must be a key (e.g., '...value'), not an index or query.".into(),
+      ));
     }
   }
 

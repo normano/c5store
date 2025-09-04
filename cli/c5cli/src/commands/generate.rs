@@ -1,18 +1,9 @@
-// c5cli/src/commands/generate.rs
-use c5_core::{
-  generate_c5_keypair as core_gen_c5_kp, // Alias core functions
-  generate_ssh_keypair as core_gen_ssh_kp,
-  io_utils, // To access write_string_to_file
-  // Import necessary items from c5_core
-  C5CoreError,
-  PemEncodedKey,
-};
+use c5_core::{generate_c5_keypair as core_gen_c5_kp, generate_ssh_keypair as core_gen_ssh_kp, io_utils, C5CoreError};
 use clap::{Args, Subcommand};
-use rand::rngs::StdRng; // For creating RNG instance
+use rand::rngs::StdRng;
 use rand::SeedableRng;
-use std::path::PathBuf; // For from_os_rng
+use std::path::PathBuf;
 
-// Assuming these are defined in c5cli/src/main.rs or a shared cli_types.rs
 use crate::{CliCryptoAlgorithm, CliSshKeyAlgorithm};
 
 #[derive(Args, Debug)]
@@ -23,8 +14,11 @@ pub struct GenArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum GenCommand {
+  /// Generate a key pair (public/private) for c5store encryption.
   #[clap(name = "kp", alias = "keypair")]
   Keypair(GenerateKeypairArgs),
+
+  /// Generate an Ed25519 key pair for SSH.
   #[clap(name = "ssh", alias = "ssh-keys")]
   Ssh(GenerateSshKeysArgs),
 }
@@ -43,16 +37,27 @@ pub struct GenerateKeypairArgs {
 
 #[derive(Args, Debug)]
 pub struct GenerateSshKeysArgs {
+  /// The base name for the SSH key files (e.g., 'id_ed25519_deploy').
   #[arg(value_name = "OUTPUT_NAME_PREFIX", default_value = "id_ed25519")]
   pub output_name_prefix: String,
+
+  /// The SSH key algorithm.
   #[arg(value_enum, long, default_value_t = CliSshKeyAlgorithm::Ed25519)]
   pub algo: CliSshKeyAlgorithm,
+
+  /// The directory where the key files will be saved.
   #[arg(long, short = 'd', value_name = "OUTPUT_DIR_PATH", default_value = ".")]
   pub output_dir: PathBuf,
+
+  /// Overwrite key files if they already exist.
   #[arg(long, short = 'y')]
   pub force: bool,
+
+  /// A comment to append to the public key file (e.g., 'user@host').
   #[arg(long, short = 'C')]
   pub comment: Option<String>,
+
+  /// Print the public key to stdout and do not save any files.
   #[arg(long)]
   pub no_save_private_key: bool,
 }

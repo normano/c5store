@@ -259,12 +259,9 @@ fn test_decrypt_missing_secret_in_config() -> Result<(), Box<dyn std::error::Err
     .arg(&keys_root)
     .arg("--to-stdout"); // to avoid needing an output file path for this error test
 
-  cmd
-    .assert()
-    .failure()
-    // Updated assertion to match the new error message when the key_path itself is not found
-    .stderr(predicate::str::contains(
-      "Key path 'non.existent.secret' not found in config file",
-    ));
+  cmd.assert().failure().stderr(
+    predicate::str::contains("Error: YAML navigation/manipulation error:")
+      .and(predicate::str::contains("Key 'non' not found")),
+  );
   Ok(())
 }

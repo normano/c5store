@@ -1,12 +1,11 @@
-// c5cli/src/commands/decrypt.rs
 use atty;
 use c5_core::{
   base64_string_to_bytes,
   decrypt_data,
-  io_utils::write_bytes_to_file, // write_string_to_file might be needed if converting to string first
+  io_utils::write_bytes_to_file,
   load_ecies_private_key,
   parse_c5_secret_array,
-  yaml_utils::{get_yaml_value_at_path, load_yaml_from_string},
+  yaml_utils::load_yaml_from_string,
   C5CoreError,
   CryptoAlgorithm as CoreCryptoAlgo,
 };
@@ -15,11 +14,16 @@ use std::fs;
 use std::io::{self, Write as IoWrite}; // For writing to stdout
 use std::path::PathBuf; // For checking if stdout is a TTY
 
-// Assuming CliCryptoAlgorithm is defined elsewhere (e.g., main.rs)
-use crate::CliCryptoAlgorithm;
+use crate::{path_parser::{parse_path, PathSegment}, CliCryptoAlgorithm};
 
-// DecryptArgs struct as defined before...
 #[derive(Args, Debug)]
+#[clap(
+    after_help = "EXAMPLES:\n\
+    # Decrypt a secret and print it to the console\n\
+    c5cli decrypt prod.yaml app.api_key my_key.key.pem --to-stdout\n\n\
+    # Decrypt a secret from an array and save it to a file, overwriting if it exists\n\
+    c5cli decrypt config.yaml 'users[name=\"admin\"].token' admin.key.pem decrypted_token.txt -y"
+)]
 pub struct DecryptArgs {
   #[arg(value_name = "CONFIG_FILE_NAME")]
   pub config_file_name: String,
@@ -75,46 +79,113 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
   };
   let yaml_doc_root = load_yaml_from_string(&yaml_str)?;
 
-  // --- CORRECTED YAML NAVIGATION FOR DECRYPT ---
-  let parent_map_node: &yaml_rust2::Yaml;
-  if args.key_path.is_empty() {
-    // If key_path is empty, the secret segment is at the root of the YAML document
-    parent_map_node = &yaml_doc_root;
-  } else {
-    // Navigate to the parent map specified by args.key_path
-    parent_map_node = get_yaml_value_at_path(&yaml_doc_root, &args.key_path).ok_or_else(|| {
-      C5CoreError::YamlNavigation(format!(
-        "Key path '{}' not found in config file '{}'.",
-        args.key_path,
-        full_config_path.display()
-      ))
-    })?;
+  // --- NEW: ADVANCED PATH TRAVERSAL FOR DECRYPTION ---
+  let segments = parse_path(&args.key_path)?;
+  let mut current_node = &yaml_doc_root;
+
+  for (i, segment) in segments.iter().enumerate() {
+    let current_path_trace = || {
+      segments[..=i]
+        .iter()
+        .map(|s| format!("{:?}", s))
+        .collect::<Vec<_>>()
+        .join("")
+    };
+    match segment {
+      PathSegment::Key(key) => {
+        current_node = match current_node.as_hash() {
+          Some(map) => map.get(&yaml_rust2::Yaml::String(key.to_string())).ok_or_else(|| {
+            C5CoreError::YamlNavigation(format!(
+              "Key '{}' not found (at path trace: {}).",
+              key,
+              current_path_trace()
+            ))
+          })?,
+          None => {
+            return Err(C5CoreError::YamlNavigation(format!(
+              "Expected a Map to access key '{}' (at path trace: {}), but found a different type.",
+              key,
+              current_path_trace()
+            )))
+          }
+        };
+      }
+      PathSegment::Index(index) => {
+        current_node = match current_node.as_vec() {
+          Some(arr) => arr.get(*index).ok_or_else(|| {
+            C5CoreError::YamlNavigation(format!(
+              "Index {} is out of bounds (at path trace: {}).",
+              index,
+              current_path_trace()
+            ))
+          })?,
+          None => {
+            return Err(C5CoreError::YamlNavigation(format!(
+              "Expected an Array for index access [{}] (at path trace: {}), but found a different type.",
+              index,
+              current_path_trace()
+            )))
+          }
+        };
+      }
+      PathSegment::Query { key, value } => {
+        let mut found_node = None;
+        if let Some(arr) = current_node.as_vec() {
+          for item in arr.iter() {
+            if let Some(map) = item.as_hash() {
+              if let Some(val_node) = map.get(&yaml_rust2::Yaml::String(key.to_string())) {
+                if val_node.as_str() == Some(value) {
+                  if found_node.is_some() {
+                    return Err(C5CoreError::YamlNavigation(format!(
+                      "Query '[{}={}]' matched multiple objects. Path must be unique for decryption.",
+                      key, value
+                    )));
+                  }
+                  found_node = Some(item);
+                }
+              }
+            }
+          }
+        } else {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Expected an Array for query '[{}={}]' (at path trace: {}), but found a different type.",
+            key,
+            value,
+            current_path_trace()
+          )));
+        }
+
+        if let Some(node) = found_node {
+          current_node = node;
+        } else {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Query '[{}={}]' matched no objects. Cannot decrypt.",
+            key, value
+          )));
+        }
+      }
+    }
   }
 
-  // Now, get the secret segment from the parent_map_node
-  let secret_val_yaml = match parent_map_node.as_hash() {
-    Some(map) => {
-      // The key for the secret segment itself (e.g., ".c5encval")
-      map
-        .get(&yaml_rust2::Yaml::String(args.secret_segment.clone())) // Use args.secret_segment directly as key
-        .ok_or_else(|| {
-          C5CoreError::YamlNavigation(format!(
-            "Secret segment key '{}' not found under YAML path '{}' in {}.",
-            args.secret_segment,
-            args.key_path,
-            full_config_path.display()
-          ))
-        })?
-    }
+  // `current_node` now points to the map that CONTAINS the secret segment.
+  let secret_val_yaml = match current_node.as_hash() {
+    Some(map) => map
+      .get(&yaml_rust2::Yaml::String(args.secret_segment.clone()))
+      .ok_or_else(|| {
+        C5CoreError::YamlNavigation(format!(
+          "Secret segment key '{}' not found under YAML path '{}' in {}.",
+          args.secret_segment,
+          args.key_path,
+          full_config_path.display()
+        ))
+      })?,
     None => {
-      // parent_map_node was not a Hash (map)
       return Err(C5CoreError::YamlNavigation(format!(
         "Expected a map at YAML path '{}' to find secret segment '{}', but found a different type.",
         args.key_path, args.secret_segment
       )));
     }
   };
-  // --- END OF CORRECTED YAML NAVIGATION ---
 
   let secret_parts = parse_c5_secret_array(secret_val_yaml)?;
   println!(

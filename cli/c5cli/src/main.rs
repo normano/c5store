@@ -2,7 +2,8 @@ use c5_core::{CryptoAlgorithm as CoreCryptoAlgo, SshKeyAlgorithm as CoreSshAlgo}
 use clap::{Parser, Subcommand, ValueEnum};
 use std::process::ExitCode;
 
-mod commands; // Declare the commands module
+mod commands;
+mod path_parser;
 
 // --- CLI Specific Enums (deriving ValueEnum) ---
 // These are now defined at the crate root level of c5cli (via main.rs)
@@ -37,7 +38,13 @@ impl From<CliSshKeyAlgorithm> for CoreSshAlgo {
 }
 
 #[derive(Parser, Debug)]
-#[clap(name = "c5cli", author, version, about = "CLI tool for c5store secret management", long_about = None)]
+#[clap(
+  name = "c5cli",
+  author,
+  version,
+  about = "A tool for managing secrets within c5store configuration files.",
+  long_about = "c5cli provides a suite of commands to generate cryptographic keys, encrypt sensitive values directly into YAML configuration files, and decrypt them for inspection."
+)]
 struct C5Cli {
   #[clap(subcommand)]
   command: Command,
@@ -45,11 +52,21 @@ struct C5Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-  /// Encrypt a value or file, or re-encrypt an existing c5store secret. Dry-run by default.
+  /// Encrypt a value into a YAML file, creating a '.c5encval' secret block.
+  #[clap(
+    long_about = "Encrypts a plaintext value or the contents of a file and places it into a target YAML configuration file at a specified path. \
+By default, this command performs a dry-run. Use --commit to write changes."
+  )]
   Encrypt(commands::encrypt::EncryptArgs),
-  /// Decrypt a c5store secret. Writes to OUTPUT_FILE_PATH by default.
+
+  /// Decrypt a '.c5encval' secret block from a YAML file.
+  #[clap(
+    long_about = "Finds a '.c5encval' secret block at a specified path within a YAML file, decrypts it using the provided private key, and outputs the result. \
+The decrypted content can be written to a file or printed to standard output."
+  )]
   Decrypt(commands::decrypt::DecryptArgs),
-  /// Generate cryptographic keys.
+
+  /// Generate cryptographic keys for encryption or SSH.
   #[clap(name = "gen", alias = "generate")]
   Generate(commands::generate::GenArgs),
 }
