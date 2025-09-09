@@ -55,12 +55,12 @@ pub(crate) fn load_systemd_credentials(
       }
     }
     Err(_) => {
-      // If the env var is missing, systemd did not set up the environment correctly. This is a fatal error.
-      return Err(ConfigError::Message(
-        "Configuration requests a systemd credential, but the CREDENTIALS_DIRECTORY environment variable is not set. Ensure the service unit uses the LoadCredential= directive.".to_string()
-      ));
+      log::warn!(
+      "Configuration requests systemd credentials, but CREDENTIALS_DIRECTORY is not set. Ensure the service unit uses the LoadCredential= directive. Skipping."
+    );
     }
   }
+
   Ok(())
 }
 
