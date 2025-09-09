@@ -43,11 +43,11 @@ use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
 use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
 #[cfg(feature = "secrets")]
-use crate::secrets::systemd::load_systemd_credentials;
+use crate::secrets::SecretKeyStore;
 #[cfg(feature = "secrets")]
 use crate::secrets::systemd::SystemdCredential;
 #[cfg(feature = "secrets")]
-use crate::secrets::SecretKeyStore;
+use crate::secrets::systemd::load_systemd_credentials;
 #[cfg(not(feature = "secrets"))]
 use crate::secrets_dummy::{SecretKeyStore, SecretKeyStoreConfiguratorFn};
 use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
@@ -647,7 +647,7 @@ pub fn create_c5store(
           return Err(ConfigError::DotEnvLoadError {
             path: dotenv_path.clone(),
             source: e,
-          })
+          });
         }
       }
     } else {
@@ -938,7 +938,7 @@ pub fn read_config_data(
           return Err(ConfigError::IoError {
             path: path.clone(),
             source: e,
-          })
+          });
         }
       }
     } else if path.is_file() {
@@ -1139,9 +1139,9 @@ fn merge_env_var_nested(
           if !matches!(occ_entry.get(), C5DataValue::Map(_)) {
             // Conflict: Entry exists but isn't a map
             return Err(ConfigError::Message(format!(
-                            "Env var key conflict: Cannot create nested structure for '{}' because part '{}' conflicts with an existing non-map value.",
-                            c5_key, part
-                         )));
+              "Env var key conflict: Cannot create nested structure for '{}' because part '{}' conflicts with an existing non-map value.",
+              c5_key, part
+            )));
           }
           // It is a map, allow occ_entry borrow to expire here.
         }
@@ -1279,11 +1279,11 @@ mod tests {
   use serial_test::serial;
   use tempfile::NamedTempFile;
 
+  use crate::C5Store;
   use crate::error::ConfigError;
   use crate::secrets::{Base64SecretDecryptor, EciesX25519SecretDecryptor, SecretKeyStore};
   use crate::value::C5DataValue;
-  use crate::C5Store;
-  use crate::{create_c5store, default_config_paths, C5StoreMgr, C5StoreOptions, SecretOptions};
+  use crate::{C5StoreMgr, C5StoreOptions, SecretOptions, create_c5store, default_config_paths};
 
   // Helper struct for get_into_struct tests
   #[derive(Deserialize, Debug, PartialEq)]
@@ -1369,11 +1369,13 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_into_struct_flattened() {
-    // Create a store specifically with flattened keys
-    env::set_var("C5_FLATDB__HOST", "flat-host.com");
-    env::set_var("C5_FLATDB__PORT", "9999");
-    env::set_var("C5_FLATDB__USER", "flat_user");
-    env::set_var("C5_FLATDB__TIMEOUT", "5000"); // Env vars are strings
+    unsafe {
+      // Create a store specifically with flattened keys
+      env::set_var("C5_FLATDB__HOST", "flat-host.com");
+      env::set_var("C5_FLATDB__PORT", "9999");
+      env::set_var("C5_FLATDB__USER", "flat_user");
+      env::set_var("C5_FLATDB__TIMEOUT", "5000"); // Env vars are strings
+    }
 
     // Use an empty config file path list, relying only on env vars
     let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Store creation from env failed");
@@ -1393,18 +1395,22 @@ mod tests {
     assert_eq!(db_conf.user, Some("flat_user".to_string()));
     assert_eq!(db_conf.timeout, 5000);
 
-    // Clean up env vars
-    env::remove_var("C5_FLATDB__HOST");
-    env::remove_var("C5_FLATDB__PORT");
-    env::remove_var("C5_FLATDB__USER");
-    env::remove_var("C5_FLATDB__TIMEOUT");
+    unsafe {
+      // Clean up env vars
+      env::remove_var("C5_FLATDB__HOST");
+      env::remove_var("C5_FLATDB__PORT");
+      env::remove_var("C5_FLATDB__USER");
+      env::remove_var("C5_FLATDB__TIMEOUT");
+    }
   }
 
   #[test]
   #[serial]
   fn test_get_into_struct_partial_flattened() {
-    // Mix flattened env vars with file values
-    env::set_var("C5_DATABASE__HOST", "env-host.com"); // Override host from file
+    unsafe {
+      // Mix flattened env vars with file values
+      env::set_var("C5_DATABASE__HOST", "env-host.com"); // Override host from file
+    }
 
     let (c5store, _c5store_mgr) = _create_c5store_test();
 
@@ -1422,18 +1428,22 @@ mod tests {
     assert_eq!(db_conf.user, Some("local_user".to_string())); // From local.yaml
     assert_eq!(db_conf.timeout, 0); // default
 
-    env::remove_var("C5_DATABASE__HOST"); // Clean up
+    unsafe {
+      env::remove_var("C5_DATABASE__HOST");
+    }
   }
 
   #[test]
   #[serial]
   fn test_get_into_struct_array_inference() {
-    // Test reconstruction of arrays from numeric keys
-    env::set_var("C5_WEB__SERVERS__0__IP", "1.1.1.1");
-    env::set_var("C5_WEB__SERVERS__0__PORT", "80");
-    env::set_var("C5_WEB__SERVERS__1__IP", "2.2.2.2");
-    env::set_var("C5_WEB__SERVERS__1__PORT", "8080");
-    env::set_var("C5_WEB__LOADBALANCER", "lb.site.com");
+    unsafe {
+      // Test reconstruction of arrays from numeric keys
+      env::set_var("C5_WEB__SERVERS__0__IP", "1.1.1.1");
+      env::set_var("C5_WEB__SERVERS__0__PORT", "80");
+      env::set_var("C5_WEB__SERVERS__1__IP", "2.2.2.2");
+      env::set_var("C5_WEB__SERVERS__1__PORT", "8080");
+      env::set_var("C5_WEB__LOADBALANCER", "lb.site.com");
+    }
 
     #[derive(Deserialize, Debug, PartialEq)]
     struct Server {
@@ -1474,11 +1484,13 @@ mod tests {
       }
     );
 
-    env::remove_var("C5_WEB__SERVERS__0__IP");
-    env::remove_var("C5_WEB__SERVERS__0__PORT");
-    env::remove_var("C5_WEB__SERVERS__1__IP");
-    env::remove_var("C5_WEB__SERVERS__1__PORT");
-    env::remove_var("C5_WEB__LOADBALANCER");
+    unsafe {
+      env::remove_var("C5_WEB__SERVERS__0__IP");
+      env::remove_var("C5_WEB__SERVERS__0__PORT");
+      env::remove_var("C5_WEB__SERVERS__1__IP");
+      env::remove_var("C5_WEB__SERVERS__1__PORT");
+      env::remove_var("C5_WEB__LOADBALANCER");
+    }
   }
 
   #[test]
@@ -1492,9 +1504,11 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_into_struct_deserialization_error() {
-    // Set env vars that won't deserialize correctly into FeatureFlags (e.g., string for bool)
-    env::set_var("C5_FEATURES__NEW_DASHBOARD", "maybe");
-    env::set_var("C5_FEATURES__API_V2", "false"); // This one is ok
+    unsafe {
+      // Set env vars that won't deserialize correctly into FeatureFlags (e.g., string for bool)
+      env::set_var("C5_FEATURES__NEW_DASHBOARD", "maybe");
+      env::set_var("C5_FEATURES__API_V2", "false");
+    }
 
     let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Store creation failed");
 
@@ -1513,8 +1527,10 @@ mod tests {
       res
     );
 
-    env::remove_var("C5_FEATURES__NEW_DASHBOARD");
-    env::remove_var("C5_FEATURES__API_V2");
+    unsafe {
+      env::remove_var("C5_FEATURES__NEW_DASHBOARD");
+      env::remove_var("C5_FEATURES__API_V2");
+    }
   }
 
   #[test]
@@ -1643,41 +1659,42 @@ mod tests {
   #[serial]
   #[cfg(feature = "secrets")]
   fn test_end_to_end_deserialization_with_secrets() {
-   use crate::secrets::Base64SecretDecryptor;
+    use crate::secrets::Base64SecretDecryptor;
 
     // --- 1. Define the Target Structs ---
     #[derive(Deserialize, Debug, PartialEq)]
     struct FullConfig {
-        database: DatabaseConfig,
-        secrets: SecretsConfig,
+      database: DatabaseConfig,
+      secrets: SecretsConfig,
     }
     #[derive(Deserialize, Debug, PartialEq)]
     struct DatabaseConfig {
-        host: String,
-        port: u16,
+      host: String,
+      port: u16,
     }
     #[derive(Deserialize, Debug, PartialEq)]
     struct SecretsConfig {
-        api_key: String,
-        app_id: u32,
-        timeout: f64,
-        raw_key: Vec<u8>,
+      api_key: String,
+      app_id: u32,
+      timeout: f64,
+      raw_key: Vec<u8>,
     }
 
     // --- 2. Configure C5StoreOptions with the REAL Base64SecretDecryptor ---
     let mut options = C5StoreOptions::default();
     options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
-        store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
-        store.set_key("dummy_key", vec![1, 2, 3]);
+      store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+      store.set_key("dummy_key", vec![1, 2, 3]);
     }));
 
     // --- 3. Load the Store from our correctly formatted test file ---
     let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
-    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options))
-        .expect("Store creation failed");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
 
     // --- 4. Perform Deserialization and Assertions ---
-    let config = c5store.get_into_struct::<FullConfig>("").expect("Deserialization failed");
+    let config = c5store
+      .get_into_struct::<FullConfig>("")
+      .expect("Deserialization failed");
 
     // Assert plaintext values are correct
     assert_eq!(config.database.host, "db.prod.com");
