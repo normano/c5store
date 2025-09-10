@@ -1,4 +1,4 @@
-# **`c5store` - Quick API Reference (v0.4.2+)**
+# **`c5store` - Quick API Reference (v0.4.5+)**
 
 This document provides a concise overview of the primary public API components for using the `c5store` library.
 
@@ -25,12 +25,19 @@ This document provides a concise overview of the primary public API components f
         *   `secret_key_env_prefix: Option<String>` (Default: `"C5_SECRETKEY_"`) - Prefix for env vars with base64 keys.
         *   **(New)** **`secrets_systemd` feature:** `load_credentials_from_systemd: Vec<SystemdCredential>` - Configures loading of secret keys provided by `systemd`. See `SystemdCredential` struct below.
 
-*   **(New)** **`struct SystemdCredential` (`secrets_systemd` feature)**
+*   **`struct SystemdCredential` (`secrets_systemd` feature)**
+
     *   Defines the mapping between a key provided by `systemd` and its logical name within `c5store`. Used within `SecretOptions`.
     *   Requires the `secrets_systemd` feature, which is enabled by default on Linux.
-    *   Fields:
-        *   `credential_name: String`: The name of the credential file as configured in the `systemd` service unit's `LoadCredential=` directive (e.g., `"myapp.private.key"`).
-        *   `ref_key_name: String`: The logical name this key will be known by within `c5store`, which must match the key name used in the `.c5encval` array in your YAML files (e.g., `"myapp_key"`).
+
+    *   **Fields:**
+        *   `credential_name: String`: The name of the credential file as configured in the `systemd` service unit's `LoadCredential=` or `LoadCredentialEncrypted=` directive (e.g., `"myapp.private.key"`).
+        *   `ref_key_name: String`: The logical name this key will be known by within `c5store`, which must match the key name used in the `.c5encval` array in your YAML files (e.g., `"my_app"`).
+        *   `format: KeyFormat`: (**Optional**, defaults to `Raw`) Specifies the format of the key material provided by `systemd`. This tells `c5store` if any further processing is needed after the credential is read.
+
+    *   **Enum `KeyFormat`:**
+        *   `Raw`: The credential data is a raw binary key and will be used as-is. This is the default.
+        *   `PemX25519`: The credential data is a PEM-encoded X25519 private key. `c5store` will parse this text format to extract the raw 32-byte secret key before use.
 
 ## Error Handling
 
