@@ -37,7 +37,7 @@ macro_rules! try_into_impl_basic {
 
       #[inline]
       fn try_into(self) -> Result<$target_type, Self::Error> {
-         match self {
+        match self {
           // For owned types like String, Vec, HashMap, we need to clone.
           // For Copy types (like bool, numbers), cloning is cheap/implicit.
           C5DataValue::$c5_variant(inner_value) => Ok(inner_value.clone()),
@@ -73,7 +73,7 @@ macro_rules! try_into_impl_basic {
 
       #[inline]
       fn try_into(self) -> Result<$target_type, Self::Error> {
-         match self {
+        match self {
           C5DataValue::$c5_variant(inner_value) => Ok(*inner_value), // Direct deref for Copy types
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
@@ -132,58 +132,57 @@ macro_rules! try_into_impl_numeric_cast {
 
 // Macro to implement From<primitive> for C5DataValue
 macro_rules! from_impl_numeric {
-    ($from_type:ty, $c5_variant:ident, $cast_type:ty) => {
-        impl From<$from_type> for C5DataValue {
-            #[inline]
-            fn from(value: $from_type) -> Self {
-                C5DataValue::$c5_variant(value as $cast_type)
-            }
-        }
-    };
+  ($from_type:ty, $c5_variant:ident, $cast_type:ty) => {
+    impl From<$from_type> for C5DataValue {
+      #[inline]
+      fn from(value: $from_type) -> Self {
+        C5DataValue::$c5_variant(value as $cast_type)
+      }
+    }
+  };
 }
 
 // Macro for Vec<T> TryInto conversion
 macro_rules! try_into_impl_vec {
-    ($target_element_type:ty) => {
-        impl TryInto<Vec<$target_element_type>> for C5DataValue {
-            type Error = ConfigError;
+  ($target_element_type:ty) => {
+    impl TryInto<Vec<$target_element_type>> for C5DataValue {
+      type Error = ConfigError;
 
-            fn try_into(self) -> Result<Vec<$target_element_type>, Self::Error> {
-                match self {
-                    C5DataValue::Array(inner_value) => inner_value
-                        .into_iter()
-                        .map(|vec_item| vec_item.try_into()) // Each element conversion can fail
-                        .collect::<Result<Vec<$target_element_type>, ConfigError>>(), // Collect results
-                    other => Err(ConfigError::TypeMismatch {
-                        key: "_conversion_".to_string(),
-                        expected_type: "Array",
-                        found_type: other.type_name(),
-                    }),
-                }
-            }
+      fn try_into(self) -> Result<Vec<$target_element_type>, Self::Error> {
+        match self {
+          C5DataValue::Array(inner_value) => inner_value
+            .into_iter()
+            .map(|vec_item| vec_item.try_into()) // Each element conversion can fail
+            .collect::<Result<Vec<$target_element_type>, ConfigError>>(), // Collect results
+          other => Err(ConfigError::TypeMismatch {
+            key: "_conversion_".to_string(),
+            expected_type: "Array",
+            found_type: other.type_name(),
+          }),
         }
+      }
+    }
 
-        impl TryInto<Vec<$target_element_type>> for &C5DataValue {
-            type Error = ConfigError;
+    impl TryInto<Vec<$target_element_type>> for &C5DataValue {
+      type Error = ConfigError;
 
-            fn try_into(self) -> Result<Vec<$target_element_type>, Self::Error> {
-                match self {
-                     // Note: .into_iter() on a slice iterates over references
-                    C5DataValue::Array(inner_value) => inner_value
-                        .iter() // Iterate over references
-                        .map(|vec_item_ref| vec_item_ref.try_into()) // TryInto<&C5DataValue> for T
-                        .collect::<Result<Vec<$target_element_type>, ConfigError>>(),
-                    other => Err(ConfigError::TypeMismatch {
-                        key: "_conversion_".to_string(),
-                        expected_type: "Array",
-                        found_type: other.type_name(),
-                    }),
-                }
-            }
+      fn try_into(self) -> Result<Vec<$target_element_type>, Self::Error> {
+        match self {
+          // Note: .into_iter() on a slice iterates over references
+          C5DataValue::Array(inner_value) => inner_value
+            .iter() // Iterate over references
+            .map(|vec_item_ref| vec_item_ref.try_into()) // TryInto<&C5DataValue> for T
+            .collect::<Result<Vec<$target_element_type>, ConfigError>>(),
+          other => Err(ConfigError::TypeMismatch {
+            key: "_conversion_".to_string(),
+            expected_type: "Array",
+            found_type: other.type_name(),
+          }),
         }
-    };
+      }
+    }
+  };
 }
-
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum C5DataValue {
@@ -216,8 +215,8 @@ impl C5DataValue {
     }
   }
 
-   // Helper method for converting value to bytes - useful internally?
-   // Keep this internal or remove if not strictly needed by public API consumers
+  // Helper method for converting value to bytes - useful internally?
+  // Keep this internal or remove if not strictly needed by public API consumers
   pub(crate) fn as_bytes(&self) -> Option<Vec<u8>> {
     match self {
       C5DataValue::String(value) => Some(value.as_bytes().to_vec()),
@@ -234,37 +233,70 @@ impl C5DataValue {
 // --- From Implementations ---
 
 impl From<()> for C5DataValue {
-  #[inline] fn from(_value: ()) -> Self { C5DataValue::Null }
+  #[inline]
+  fn from(_value: ()) -> Self {
+    C5DataValue::Null
+  }
 }
 impl From<Vec<u8>> for C5DataValue {
-  #[inline] fn from(value: Vec<u8>) -> Self { C5DataValue::Bytes(value) }
+  #[inline]
+  fn from(value: Vec<u8>) -> Self {
+    C5DataValue::Bytes(value)
+  }
 }
 impl From<bool> for C5DataValue {
-  #[inline] fn from(value: bool) -> Self { C5DataValue::Boolean(value) }
+  #[inline]
+  fn from(value: bool) -> Self {
+    C5DataValue::Boolean(value)
+  }
 }
 impl From<String> for C5DataValue {
-  #[inline] fn from(value: String) -> Self { C5DataValue::String(value) }
+  #[inline]
+  fn from(value: String) -> Self {
+    C5DataValue::String(value)
+  }
 }
 impl From<&str> for C5DataValue {
-  #[inline] fn from(value: &str) -> Self { C5DataValue::String(value.to_string()) }
+  #[inline]
+  fn from(value: &str) -> Self {
+    C5DataValue::String(value.to_string())
+  }
 }
 impl From<Box<str>> for C5DataValue {
-  #[inline] fn from(value: Box<str>) -> Self { C5DataValue::String(value.into_string()) }
+  #[inline]
+  fn from(value: Box<str>) -> Self {
+    C5DataValue::String(value.into_string())
+  }
 }
 impl From<i64> for C5DataValue {
-  #[inline] fn from(value: i64) -> Self { C5DataValue::Integer(value) }
+  #[inline]
+  fn from(value: i64) -> Self {
+    C5DataValue::Integer(value)
+  }
 }
 impl From<u64> for C5DataValue {
-  #[inline] fn from(value: u64) -> Self { C5DataValue::UInteger(value) }
+  #[inline]
+  fn from(value: u64) -> Self {
+    C5DataValue::UInteger(value)
+  }
 }
 impl From<f64> for C5DataValue {
-  #[inline] fn from(value: f64) -> Self { C5DataValue::Float(value) }
+  #[inline]
+  fn from(value: f64) -> Self {
+    C5DataValue::Float(value)
+  }
 }
 impl From<Vec<C5DataValue>> for C5DataValue {
-  #[inline] fn from(value: Vec<C5DataValue>) -> Self { C5DataValue::Array(value) }
+  #[inline]
+  fn from(value: Vec<C5DataValue>) -> Self {
+    C5DataValue::Array(value)
+  }
 }
 impl From<HashMap<String, C5DataValue>> for C5DataValue {
-  #[inline] fn from(value: HashMap<String, C5DataValue>) -> Self { C5DataValue::Map(value) }
+  #[inline]
+  fn from(value: HashMap<String, C5DataValue>) -> Self {
+    C5DataValue::Map(value)
+  }
 }
 
 // From impls for smaller numeric types using macro
@@ -278,25 +310,34 @@ from_impl_numeric!(u32, UInteger, u64);
 from_impl_numeric!(usize, UInteger, u64);
 from_impl_numeric!(f32, Float, f64);
 
-
 // --- TryInto Implementations ---
 
 // TryInto<()>
 impl TryInto<()> for C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<(), Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<(), Self::Error> {
     match self {
       C5DataValue::Null => Ok(()),
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Null", found_type: other.type_name() }),
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Null",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
 impl TryInto<()> for &C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<(), Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<(), Self::Error> {
     match self {
       C5DataValue::Null => Ok(()),
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Null", found_type: other.type_name() }),
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Null",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
@@ -308,24 +349,74 @@ try_into_impl_basic!(Vec<u8>, Bytes, "Bytes");
 try_into_impl_basic!(bool, Boolean, "Boolean", Copy);
 
 // TryInto<String> using macro
-try_into_impl_basic!(String, String, "String");
+impl TryInto<String> for C5DataValue {
+  type Error = ConfigError;
+
+  #[inline]
+  fn try_into(self) -> Result<String, Self::Error> {
+    match self {
+      C5DataValue::String(s) => Ok(s),
+      C5DataValue::Bytes(b) => String::from_utf8(b).map_err(|e| ConfigError::ConversionError {
+        key: "_conversion_".to_string(), // Key context isn't available here
+        message: format!("decrypted bytes are not valid UTF-8: {}", e),
+      }),
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "String or Bytes",
+        found_type: other.type_name(),
+      }),
+    }
+  }
+}
+
+impl TryInto<String> for &C5DataValue {
+  type Error = ConfigError;
+
+  #[inline]
+  fn try_into(self) -> Result<String, Self::Error> {
+    match self {
+      C5DataValue::String(s) => Ok(s.clone()), // Must clone from a reference
+      C5DataValue::Bytes(b) => {
+        String::from_utf8(b.clone()).map_err(|e| ConfigError::ConversionError {
+          key: "_conversion_".to_string(),
+          message: format!("decrypted bytes are not valid UTF-8: {}", e),
+        })
+      }
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "String or Bytes",
+        found_type: other.type_name(),
+      }),
+    }
+  }
+}
 
 // TryInto<Box<str>>
 impl TryInto<Box<str>> for C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<Box<str>, Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<Box<str>, Self::Error> {
     match self {
       C5DataValue::String(inner_value) => Ok(inner_value.into_boxed_str()),
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "String", found_type: other.type_name() }),
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "String",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
 impl TryInto<Box<str>> for &C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<Box<str>, Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<Box<str>, Self::Error> {
     match self {
       C5DataValue::String(inner_value) => Ok(inner_value.clone().into_boxed_str()),
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "String", found_type: other.type_name() }),
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "String",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
@@ -335,7 +426,8 @@ impl TryInto<Box<str>> for &C5DataValue {
 // TryInto<i64> (Special case: Allow conversion from UInteger if in range)
 impl TryInto<i64> for C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<i64, Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<i64, Self::Error> {
     match self {
       C5DataValue::Integer(i) => Ok(i),
       C5DataValue::UInteger(u) => {
@@ -347,14 +439,19 @@ impl TryInto<i64> for C5DataValue {
             message: format!("UInteger value {} out of range for i64", u),
           })
         }
-      },
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Integer or UInteger", found_type: other.type_name() }),
+      }
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Integer or UInteger",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
 impl TryInto<i64> for &C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<i64, Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<i64, Self::Error> {
     match self {
       C5DataValue::Integer(i) => Ok(*i),
       C5DataValue::UInteger(u) => {
@@ -366,8 +463,12 @@ impl TryInto<i64> for &C5DataValue {
             message: format!("UInteger value {} out of range for i64", u),
           })
         }
-      },
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Integer or UInteger", found_type: other.type_name() }),
+      }
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Integer or UInteger",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
@@ -375,39 +476,49 @@ impl TryInto<i64> for &C5DataValue {
 // TryInto<u64> (Special case: Allow conversion from Integer if non-negative)
 impl TryInto<u64> for C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<u64, Self::Error> {
+  #[inline]
+  fn try_into(self) -> Result<u64, Self::Error> {
     match self {
       C5DataValue::UInteger(u) => Ok(u),
       C5DataValue::Integer(i) => {
         if i >= 0 {
           Ok(i as u64)
         } else {
-           Err(ConfigError::ConversionError {
+          Err(ConfigError::ConversionError {
             key: "_conversion_".to_string(),
             message: format!("Negative Integer value {} cannot be converted to u64", i),
           })
         }
-      },
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Integer or UInteger", found_type: other.type_name() }),
+      }
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Integer or UInteger",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
 impl TryInto<u64> for &C5DataValue {
   type Error = ConfigError;
-  #[inline] fn try_into(self) -> Result<u64, Self::Error> {
-     match self {
+  #[inline]
+  fn try_into(self) -> Result<u64, Self::Error> {
+    match self {
       C5DataValue::UInteger(u) => Ok(*u),
       C5DataValue::Integer(i) => {
         if *i >= 0 {
           Ok(*i as u64)
         } else {
-           Err(ConfigError::ConversionError {
+          Err(ConfigError::ConversionError {
             key: "_conversion_".to_string(),
             message: format!("Negative Integer value {} cannot be converted to u64", i),
           })
         }
-      },
-      other => Err(ConfigError::TypeMismatch { key: "_conversion_".to_string(), expected_type: "Integer or UInteger", found_type: other.type_name() }),
+      }
+      other => Err(ConfigError::TypeMismatch {
+        key: "_conversion_".to_string(),
+        expected_type: "Integer or UInteger",
+        found_type: other.type_name(),
+      }),
     }
   }
 }
@@ -452,10 +563,14 @@ try_into_impl_vec!(i32);
 try_into_impl_vec!(u32);
 try_into_impl_vec!(f32);
 
-pub(in crate) fn c5_value_to_serde_json(c5_value: C5DataValue) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub(crate) fn c5_value_to_serde_json(
+  c5_value: C5DataValue,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
   match c5_value {
     C5DataValue::Null => Ok(serde_json::Value::Null),
-    C5DataValue::Bytes(b) => Ok(serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&b))), // Represent bytes as base64 string
+    C5DataValue::Bytes(b) => Ok(serde_json::Value::String(
+      base64::engine::general_purpose::STANDARD.encode(&b),
+    )), // Represent bytes as base64 string
     C5DataValue::Boolean(b) => Ok(serde_json::Value::Bool(b)),
     C5DataValue::Integer(i) => Ok(serde_json::json!(i)), // Use json! macro for numbers
     C5DataValue::UInteger(u) => Ok(serde_json::json!(u)),

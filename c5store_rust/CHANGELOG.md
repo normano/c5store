@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2025-09-10
+
+### Changed
+- get_into() now supports automatic bytes tot string conversion
+
 ## [0.4.5] - 2025-09-09
 
 ### Changed
