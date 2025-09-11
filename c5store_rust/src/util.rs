@@ -36,15 +36,15 @@ fn build_flat_map_recursive(
 
     match value {
       C5DataValue::Map(sub_map) => {
-         // Avoid flattening provider config maps - their structure should be preserved
-         // until handled by the provider itself.
-         if !sub_map.contains_key(CONFIG_KEY_PROVIDER) {
-            // Recurse for non-provider maps
-            build_flat_map_recursive(sub_map, flat_map_out, &new_keypath);
-         }
-         // NOTE: We do NOT insert the C5DataValue::Map itself into the flat map.
-         // If it was a provider map, it's skipped entirely here.
-         // If it was a regular map, its children are added via recursion.
+        // A map is a "leaf" if it's a directive for a provider or a secret.
+        // If so, we treat the entire map as the final value and do NOT recurse.
+        if sub_map.contains_key(CONFIG_KEY_PROVIDER) || sub_map.contains_key(".c5encval") {
+          // This is a provider or secret directive. Insert the whole map and stop.
+          flat_map_out.insert(new_keypath, value.clone());
+        } else {
+          // This is a regular nested map. Recurse into it.
+          build_flat_map_recursive(sub_map, flat_map_out, &new_keypath);
+        }
       }
       // Includes Primitives, Bytes, Strings, Booleans, Null, and Arrays
       _ => {

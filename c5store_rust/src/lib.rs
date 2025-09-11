@@ -1253,6 +1253,25 @@ fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataV
   }
 }
 
+// fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataValue>) {
+//   for (src_key, src_value) in src.iter() {
+//     // Check if the key exists in the destination and if both values are maps.
+//     if let Some(C5DataValue::Map(dest_map)) = dest.get_mut(src_key) {
+//       if let C5DataValue::Map(src_map) = src_value {
+//         // Both are maps, so recurse to merge them deeply.
+//         _merge(dest_map, src_map);
+//         // Continue to the next key, skipping the overwrite below.
+//         continue;
+//       }
+//     }
+
+//     // If the key doesn't exist in the destination, OR if one of the values
+//     // is not a map (e.g., an array, string, number), then the source value
+//     // completely overwrites the destination value.
+//     dest.insert(src_key.clone(), src_value.clone());
+//   }
+// }
+
 // Helper to extract provider configurations (no changes needed inside, just signature)
 fn _take_provided_data(
   raw_config_data: &mut HashMap<String, C5DataValue>,
@@ -1672,9 +1691,7 @@ mod tests {
     let (c5store, _c5store_mgr) = create_c5store(config_file_paths, Some(config_opt))
       .expect("Bad secrets test store creation failed");
 
-    // Behavior might change with better error handling, maybe secrets just aren't loaded
-    // Let's assume `get` still returns None if decryption failed during set_data
-    assert_eq!(c5store.get("bad_secret"), None);
+    assert_eq!(c5store.get("bad_secret"), Some(C5DataValue::Null));
   }
 
   #[test]
@@ -1806,18 +1823,20 @@ my_bad_utf8_secret:
     - "wyg="
 "#;
 
-    
     let mut temp_config_file = tempfile::Builder::new()
-        .prefix("c5store-test-")
-        .suffix(".yaml")
-        .tempfile()
-        .unwrap();
+      .prefix("c5store-test-")
+      .suffix(".yaml")
+      .tempfile()
+      .unwrap();
     write!(temp_config_file, "{}", config_content).unwrap();
 
     // Read the file's content directly from the disk to verify it.
     let file_path = temp_config_file.path();
     let content_on_disk = std::fs::read_to_string(file_path).unwrap();
-    assert_eq!(content_on_disk, config_content, "The content on disk did not match the expected content!");
+    assert_eq!(
+      content_on_disk, config_content,
+      "The content on disk did not match the expected content!"
+    );
 
     let config_path = temp_config_file.path().to_path_buf();
 
@@ -1857,5 +1876,155 @@ my_bad_utf8_secret:
       "Expected a ConversionError for invalid UTF-8, but got {:?}",
       bad_result
     );
+  }
+
+  // In c5store_rust/src/lib.rs -> mod tests { ... }
+
+  #[test]
+  #[serial]
+  fn test_array_overwrite_during_merge() {
+    // --- 1. Prepare Test Configuration Files ---
+    let config1_content = r#"
+    test:
+      key1:
+        key1_2: []
+      key2: "from config1"
+    "#;
+    let config2_content = r#"
+    test:
+      key1:
+        key1_2:
+        - "a"
+        - "b"
+      key3: "from config2"
+    "#;
+
+    let mut file1 = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+    write!(file1, "{}", config1_content).unwrap();
+    file1.flush().unwrap();
+
+    let mut file2 = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+    write!(file2, "{}", config2_content).unwrap();
+    file2.flush().unwrap();
+
+    // The order is important: file2 should overwrite file1
+    let config_paths = vec![file1.path().to_path_buf(), file2.path().to_path_buf()];
+
+    // --- 2. Create the Store ---
+    let (c5store, _mgr) = create_c5store(config_paths, None).expect("Store creation failed");
+
+    // --- 3. Assert Final State ---
+
+    // Assert that the empty array was correctly overwritten by the full one.
+    let expected_array = C5DataValue::Array(vec![
+      C5DataValue::String("a".to_string()),
+      C5DataValue::String("b".to_string()),
+    ]);
+    assert_eq!(
+      c5store.get("test.key1.key1_2").unwrap(),
+      expected_array,
+      "The empty array from the first file was not overwritten."
+    );
+
+    // Assert that other keys were merged correctly.
+    assert_eq!(
+      c5store.get("test.key2").unwrap(),
+      C5DataValue::String("from config1".to_string()),
+      "Key only present in the first file should exist."
+    );
+    assert_eq!(
+      c5store.get("test.key3").unwrap(),
+      C5DataValue::String("from config2".to_string()),
+      "Key only present in the second file should exist."
+    );
+  }
+
+  #[test]
+  #[serial]
+  #[cfg(feature = "secrets")]
+  fn test_array_of_objects_overwrite_with_secrets() {
+    // --- 1. Define Target Structs for Deserialization ---
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct Endpoint {
+      name: String,
+      api_key: String, // Target is a String, will require Bytes -> String conversion
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct ServicesConfig {
+      endpoints: Vec<Endpoint>,
+    }
+
+    // --- 2. Prepare Test Configuration Files ---
+    // Config 1 has an empty array. This will be overwritten.
+    let config1_content = r#"
+services:
+  endpoints: []
+"#;
+
+    // Config 2 has a full array of objects, one of which contains a secret.
+    // The secret "super-secret-auth-key" is base64 encoded as "c3VwZXItc2VjcmV0LWF1dGgta2V5"
+    let config2_content = r#"
+services:
+  endpoints:
+    - name: "user-service"
+      api_key: "plain-key-123"
+    - name: "auth-service"
+      api_key:
+        .c5encval:
+        - "base64"
+        - "test_key"
+        - "c3VwZXItc2VjcmV0LWF1dGgta2V5"
+"#;
+
+    // Create temporary files with .yaml extension
+    let mut file1 = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+    write!(file1, "{}", config1_content).unwrap();
+    file1.flush().unwrap();
+
+    let mut file2 = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+    write!(file2, "{}", config2_content).unwrap();
+    file2.flush().unwrap();
+
+    // The order is important: file2 should overwrite file1
+    let config_paths = vec![file1.path().to_path_buf(), file2.path().to_path_buf()];
+
+    // --- 3. Configure C5Store for Secrets ---
+    let mut options = C5StoreOptions::default();
+    options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
+      store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+      store.set_key("test_key", vec![]);
+    }));
+
+    // --- 4. Create the Store ---
+    let (c5store, _mgr) =
+      create_c5store(config_paths, Some(options)).expect("Store creation failed");
+
+    // --- 5. Perform Deserialization and Assertions ---
+    let result = c5store.get_into_struct::<ServicesConfig>("services");
+
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize ServicesConfig: {:?}",
+      result.err()
+    );
+    let config = result.unwrap();
+
+    // Define the final, expected state of the struct after merging and decryption.
+    let expected_config = ServicesConfig {
+      endpoints: vec![
+        Endpoint {
+          name: "user-service".to_string(),
+          api_key: "plain-key-123".to_string(),
+        },
+        Endpoint {
+          name: "auth-service".to_string(),
+          api_key: "super-secret-auth-key".to_string(), // The decrypted value
+        },
+      ],
+    };
+
+    // Assert that the final struct matches the expected state.
+    assert_eq!(config, expected_config);
   }
 }
