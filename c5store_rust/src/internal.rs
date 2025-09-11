@@ -24,12 +24,18 @@ pub struct C5StoreDataValueRef<'a> {
 impl<'a> C5StoreDataValueRef<'a> {
   pub fn value(&'a self) -> Option<&'a C5DataValue> {
     // Extract value from tuple
-    self._lock.get(&self._natural_key_path).map(|(value, _source)| value)
+    self
+      ._lock
+      .get(&self._natural_key_path)
+      .map(|(value, _source)| value)
   }
 
   pub fn source(&'a self) -> Option<&'a ConfigSource> {
     // Extract source from tuple
-    self._lock.get(&self._natural_key_path).map(|(_value, source)| source)
+    self
+      ._lock
+      .get(&self._natural_key_path)
+      .map(|(_value, source)| source)
   }
 }
 
@@ -71,7 +77,9 @@ impl C5DataStore {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
 
-    return rwlock.get(&natural_key_path).map(|(value, _source)| value.clone());
+    return rwlock
+      .get(&natural_key_path)
+      .map(|(value, _source)| value.clone());
   }
 
   // Gets, if exist, a reference context to value.
@@ -102,47 +110,59 @@ impl C5DataStore {
     self._set_data_internal(key, value, source)
   }
 
-  // Called by read_config_data and potentially the public set_data
-  pub(crate) fn _set_data_internal(&self, key: &str, value: C5DataValue, source: ConfigSource) -> Option<C5DataValue> {
+  /// Recursively traverses a `C5DataValue` and decrypts any secrets found in-place.
+  /// This is an internal method of the C5DataStore.
+  fn _decrypt_value_recursive_in_place(&self, value: &mut C5DataValue, path_for_logging: &str) {
+    match value {
+      C5DataValue::Map(map) => {
+        // First, check if this map *is* a secret definition.
+        if let Some(secret_val) = map.get(".c5encval") {
+          let temp_log_key = format!("{}.<secret>", path_for_logging);
+
+          // Call _get_secret using `self`.
+          if let Some(decrypted_bytes) = self._get_secret(&temp_log_key, secret_val) {
+            *value = C5DataValue::Bytes(decrypted_bytes);
+          } else {
+            *value = C5DataValue::Null;
+          }
+          return; // Stop traversing this branch.
+        }
+
+        // If not a secret itself, traverse its children.
+        for (key, child_value) in map.iter_mut() {
+          let child_path = format!("{}.{}", path_for_logging, key);
+          self._decrypt_value_recursive_in_place(child_value, &child_path);
+        }
+      }
+      C5DataValue::Array(arr) => {
+        // Traverse the children of an array.
+        for (i, item) in arr.iter_mut().enumerate() {
+          let item_path = format!("{}.{}", path_for_logging, i);
+          self._decrypt_value_recursive_in_place(item, &item_path);
+        }
+      }
+      _ => (), // Primitives are ignored.
+    }
+  }
+
+  pub(crate) fn _set_data_internal(
+    &self,
+    key: &str,
+    mut value: C5DataValue, // Value is mutable
+    source: ConfigSource,
+  ) -> Option<C5DataValue> {
     self._stats_recorder.record_counter_increment(
-      hashmap! {
-        "group".to_string() => TagValue::String("c5store".to_string()),
-      },
+      hashmap! { "group".to_string() => TagValue::String("c5store".to_string()), },
       "set_attempts".to_string(),
     );
 
-    // Handle secrets conditionally
-    #[cfg(feature = "secrets")]
-    if key.ends_with(&*self._secret_key_path_segment) {
-      let decrypted_val_result = self._get_secret(key, &value);
+    // Call the new internal method on self.
+    self._decrypt_value_recursive_in_place(&mut value, key);
 
-      if let Some(decrypted_val) = decrypted_val_result {
-        let data_path = Box::from(&key[..(key.len() - self._secret_key_path_segment.len())]);
-        // Store decrypted bytes with the original source info
-        return self
-          ._data
-          .write()
-          .insert(
-            NatLexOrderedString::from(data_path),
-            (C5DataValue::Bytes(decrypted_val), source), // Use provided source
-          )
-          .map(|(old_value, _old_source)| old_value);
-      } else {
-        // Decryption failed or skipped (e.g., cached), don't store
-        // Logged inside _get_secret
-        return None;
-      }
-    }
-
-    // Default behavior (not a secret or secrets disabled)
-    // Store the value and source tuple
     return self
       ._data
       .write()
-      .insert(
-        NatLexOrderedString::from(key),
-        (value, source), // Use provided source
-      )
+      .insert(NatLexOrderedString::from(key), (value, source))
       .map(|(old_value, _old_source)| old_value);
   }
 
@@ -151,7 +171,9 @@ impl C5DataStore {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
     // Extract source info from tuple and clone it
-    rwlock.get(&natural_key_path).map(|(_value, source)| source.clone())
+    rwlock
+      .get(&natural_key_path)
+      .map(|(_value, source)| source.clone())
   }
 
   #[cfg(feature = "secrets")]
@@ -167,9 +189,13 @@ impl C5DataStore {
     let data: Vec<C5DataValue> = data_result.unwrap();
 
     if data.len() != 3 {
-      self
-        ._logger
-        .warn(format!("Key path `{}` does not have the required number of arguments", key_path).as_str());
+      self._logger.warn(
+        format!(
+          "Key path `{}` does not have the required number of arguments",
+          key_path
+        )
+        .as_str(),
+      );
       return None;
     }
 
@@ -211,7 +237,8 @@ impl C5DataStore {
         return None;
       }
     } else {
-      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock).insert(key_path.to_string(), hash_value);
+      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock)
+        .insert(key_path.to_string(), hash_value);
     }
 
     self._stats_recorder.record_counter_increment(
@@ -261,7 +288,10 @@ impl C5DataStore {
       "exists_attempts".to_string(),
     );
 
-    return self._data.read().contains_key(&NatLexOrderedString::from(key));
+    return self
+      ._data
+      .read()
+      .contains_key(&NatLexOrderedString::from(key));
   }
 
   /// Checks if the key's prefix exist
@@ -304,7 +334,12 @@ impl C5DataStore {
 
   pub fn keys_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
     return match key_path_option {
-      None => self._data.read().iter().map(|entry| (entry.0).0.clone()).collect(),
+      None => self
+        ._data
+        .read()
+        .iter()
+        .map(|entry| (entry.0).0.clone())
+        .collect(),
       Some(key_path) => {
         let mut result = vec![];
 
@@ -339,7 +374,10 @@ impl C5DataStore {
   /// A `Result` containing the reconstructed `serde_json::Value` or a `ConfigError`.
   /// Returns `Ok(JsonValue::Null)` if the prefix exists but has no children,
   /// or if the prefix itself doesn't exist.
-  pub(crate) fn fetch_children_as_c5_value(&self, prefix: &str) -> Result<C5DataValue, ConfigError> {
+  pub(crate) fn fetch_children_as_c5_value(
+    &self,
+    prefix: &str,
+  ) -> Result<C5DataValue, ConfigError> {
     self._stats_recorder.record_counter_increment(
       hashmap! {
           "group".to_string() => TagValue::String("c5store".to_string()),
@@ -430,11 +468,17 @@ impl C5StoreSubscriptions {
 
 impl C5StoreSubscriptions {
   pub fn add(&self, key_path: &str, listener: Box<ChangeListener>) {
-    self._simple_listeners.write().insert(key_path.to_string(), listener);
+    self
+      ._simple_listeners
+      .write()
+      .insert(key_path.to_string(), listener);
   }
 
   pub fn add_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
-    self._detailed_listeners.write().insert(key_path.to_string(), listener);
+    self
+      ._detailed_listeners
+      .write()
+      .insert(key_path.to_string(), listener);
   }
 
   pub fn notify_value_change(
@@ -464,7 +508,11 @@ impl C5StoreSubscriptions {
 }
 
 #[cfg(feature = "secrets")]
-fn _calc_hash_value(algo: &String, secret_key_name: &String, encoded_data: &String) -> Option<Vec<u8>> {
+fn _calc_hash_value(
+  algo: &String,
+  secret_key_name: &String,
+  encoded_data: &String,
+) -> Option<Vec<u8>> {
   let mut hasher = Sha256::new();
   hasher.update(algo.as_bytes());
   hasher.update(secret_key_name.as_bytes());
@@ -484,7 +532,10 @@ fn insert_nested_c5_value<'a>(
   // Returns String for error message, consistent with original
   for (i, part) in path_parts.iter().enumerate() {
     if part.is_empty() {
-      return Err(format!("Encountered empty segment in path: {:?}", path_parts));
+      return Err(format!(
+        "Encountered empty segment in path: {:?}",
+        path_parts
+      ));
     }
     let is_last = i == path_parts.len() - 1;
     let maybe_index: Option<usize> = part.parse().ok();
@@ -519,7 +570,10 @@ fn insert_nested_c5_value<'a>(
         }
       }
     } else {
-      let next_part_is_index: bool = path_parts.get(i + 1).and_then(|p| p.parse::<usize>().ok()).is_some();
+      let next_part_is_index: bool = path_parts
+        .get(i + 1)
+        .and_then(|p| p.parse::<usize>().ok())
+        .is_some();
 
       let create_default_container = || {
         if next_part_is_index {
@@ -531,7 +585,9 @@ fn insert_nested_c5_value<'a>(
 
       match node {
         C5DataValue::Map(map) => {
-          let entry_node = map.entry(part.to_string()).or_insert_with(create_default_container);
+          let entry_node = map
+            .entry(part.to_string())
+            .or_insert_with(create_default_container);
 
           if (next_part_is_index && !matches!(entry_node, C5DataValue::Array(_)))
             || (!next_part_is_index && !matches!(entry_node, C5DataValue::Map(_)))
