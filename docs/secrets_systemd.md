@@ -63,12 +63,14 @@ Copy the contents of `my_app.c5.key.pem` to the server. For example, use `scp` a
 On the server, use the `systemd-creds` command to encrypt and store the private key. The name given here (e.g., `myapp.private.key`) is the **credential name**.
 
 ```bash
-# Paste the contents of my_app.c5.key.pem when prompted, then press Ctrl+D.
+# Paste the contents of myapp.private.key when prompted, then press Ctrl+D.
 # The credential name "myapp.private.key" will be used in the systemd service file.
-sudo systemd-creds encrypt - --name=myapp.private.key /etc/credstore.encrypted/myapp.private.key
+sudo systemd-creds encrypt --name=myapp.private.key myapp.private.key /etc/credstore.encrypted/myapp.private.key
+
+sudo chmod 600 /etc/credstore.encrypted/myapp.private.key
 
 # Securely remove the original PEM file if it was transferred
-shred -u my_app.c5.key.pem
+shred -u myapp.private.key
 ```
 This command reads the key from standard input, encrypts it using a key unique to this machine (often TPM-backed), and saves it to the protected `credstore` directory. The plaintext private key no longer needs to be on the server.
 
