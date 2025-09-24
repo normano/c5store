@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2024"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
@@ -36,9 +36,9 @@ serde_json = "^1"
 serde_yaml = "^0"
 sha2 = { version = "^0.10", optional = true }
 shellexpand = "^3.0"
-skiplist = "^0.5"
-thiserror = "^2.0.12"
-toml = { version = "^0.8", optional = true }
+skiplist = "0.6"
+thiserror = "2.0"
+toml = { version = "0.8", optional = true }
 
 tokio = { version = "^1", features = ["fs", "macros", "rt-multi-thread"], optional = true }
 reqwest = { version = "^0.12", optional = true }
