@@ -1,4 +1,4 @@
-use std::collections::{Bound, HashMap};
+use std::collections::{BTreeMap, BTreeSet, Bound, HashMap};
 use std::sync::Arc;
 
 use maplit::hashmap;
@@ -24,18 +24,12 @@ pub struct C5StoreDataValueRef<'a> {
 impl<'a> C5StoreDataValueRef<'a> {
   pub fn value(&'a self) -> Option<&'a C5DataValue> {
     // Extract value from tuple
-    self
-      ._lock
-      .get(&self._natural_key_path)
-      .map(|(value, _source)| value)
+    self._lock.get(&self._natural_key_path).map(|(value, _source)| value)
   }
 
   pub fn source(&'a self) -> Option<&'a ConfigSource> {
     // Extract source from tuple
-    self
-      ._lock
-      .get(&self._natural_key_path)
-      .map(|(_value, source)| source)
+    self._lock.get(&self._natural_key_path).map(|(_value, source)| source)
   }
 }
 
@@ -77,9 +71,7 @@ impl C5DataStore {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
 
-    return rwlock
-      .get(&natural_key_path)
-      .map(|(value, _source)| value.clone());
+    return rwlock.get(&natural_key_path).map(|(value, _source)| value.clone());
   }
 
   // Gets, if exist, a reference context to value.
@@ -171,9 +163,7 @@ impl C5DataStore {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
     // Extract source info from tuple and clone it
-    rwlock
-      .get(&natural_key_path)
-      .map(|(_value, source)| source.clone())
+    rwlock.get(&natural_key_path).map(|(_value, source)| source.clone())
   }
 
   #[cfg(feature = "secrets")]
@@ -189,13 +179,9 @@ impl C5DataStore {
     let data: Vec<C5DataValue> = data_result.unwrap();
 
     if data.len() != 3 {
-      self._logger.warn(
-        format!(
-          "Key path `{}` does not have the required number of arguments",
-          key_path
-        )
-        .as_str(),
-      );
+      self
+        ._logger
+        .warn(format!("Key path `{}` does not have the required number of arguments", key_path).as_str());
       return None;
     }
 
@@ -237,8 +223,7 @@ impl C5DataStore {
         return None;
       }
     } else {
-      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock)
-        .insert(key_path.to_string(), hash_value);
+      RwLockUpgradableReadGuard::upgrade(value_hash_cache_rlock).insert(key_path.to_string(), hash_value);
     }
 
     self._stats_recorder.record_counter_increment(
@@ -288,10 +273,7 @@ impl C5DataStore {
       "exists_attempts".to_string(),
     );
 
-    return self
-      ._data
-      .read()
-      .contains_key(&NatLexOrderedString::from(key));
+    return self._data.read().contains_key(&NatLexOrderedString::from(key));
   }
 
   /// Checks if the key's prefix exist
@@ -334,12 +316,7 @@ impl C5DataStore {
 
   pub fn keys_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
     return match key_path_option {
-      None => self
-        ._data
-        .read()
-        .iter()
-        .map(|entry| (entry.0).0.clone())
-        .collect(),
+      None => self._data.read().iter().map(|entry| (entry.0).0.clone()).collect(),
       Some(key_path) => {
         let mut result = vec![];
 
@@ -374,80 +351,60 @@ impl C5DataStore {
   /// A `Result` containing the reconstructed `serde_json::Value` or a `ConfigError`.
   /// Returns `Ok(JsonValue::Null)` if the prefix exists but has no children,
   /// or if the prefix itself doesn't exist.
-  pub(crate) fn fetch_children_as_c5_value(
-    &self,
-    prefix: &str,
-  ) -> Result<C5DataValue, ConfigError> {
-    self._stats_recorder.record_counter_increment(
-      hashmap! {
-          "group".to_string() => TagValue::String("c5store".to_string()),
-      },
-      "fetch_children_attempts".to_string(), // Consider renaming metric if it's specific
-    );
-
+  /// Main entry point for reconstruction. Fetches flattened keys and delegates to the recursive builder.
+  pub(crate) fn fetch_children_as_c5_value(&self, prefix: &str) -> Result<C5DataValue, ConfigError> {
     let data_lock = self._data.read();
-    // ### MODIFIED root_value to be C5DataValue::Map
-    let mut root_value = C5DataValue::Map(HashMap::new()); // Start with an empty C5 Map
 
-    // Determine the actual prefix string to search for and the base length to strip
-    let (search_prefix, prefix_len_to_strip) = if prefix.is_empty() {
-      (String::new(), 0) // Fetch all, strip nothing
+    let prefix_dot = if prefix.is_empty() {
+      String::new()
     } else {
-      (format!("{}.", prefix), prefix.len() + 1) // Fetch children, strip "prefix."
+      format!("{}.", prefix)
     };
-    let search_prefix_nat_lex = NatLexOrderedString::from(search_prefix.as_str());
 
-    // Define the start bound for the range scan
     let start_bound = if prefix.is_empty() {
-      Bound::Unbounded // Start from the beginning if prefix is empty
+      Bound::Unbounded
     } else {
-      // Start searching *from* "prefix."
-      Bound::Included(&search_prefix_nat_lex)
+      Bound::Included(NatLexOrderedString::from(prefix_dot.as_str()))
     };
 
-    let range = data_lock.range(start_bound, Bound::Unbounded);
-
-    let mut found_children = false;
-    for (key_nat_lex, (c5_value, _source)) in range {
+    // 1. Collect all relevant child paths and their values into a sorted map.
+    let mut child_paths = BTreeMap::new();
+    for (key_nat_lex, (c5_value, _source)) in data_lock.range(start_bound.as_ref(), Bound::Unbounded) {
       let full_key = &key_nat_lex.0;
 
-      // Stop if we go past the prefix (only relevant if prefix is not empty)
-      if !prefix.is_empty() && !full_key.starts_with(&search_prefix) {
-        break;
+      // Stop if we've iterated past the prefix.
+      if !prefix.is_empty() && !full_key.starts_with(&prefix_dot) {
+        // Also need to handle the case where the key is the prefix itself
+        if full_key != prefix {
+          break;
+        }
       }
 
-      // Calculate the relative path
-      let relative_path = &full_key[prefix_len_to_strip..];
-      if relative_path.is_empty() {
-        // Should not happen if key starts with "prefix."
-        continue;
-      }
+      let relative_path = if prefix.is_empty() {
+        full_key.as_str()
+      } else {
+        full_key.strip_prefix(&prefix_dot).unwrap_or("")
+      };
 
-      found_children = true;
-
-      // The value is already a C5DataValue, we need to clone it for insertion
-      let value_to_insert = c5_value.clone();
-
-      // Split relative path and insert into the root C5DataValue structure
-      let path_parts: Vec<&str> = relative_path.split('.').collect();
-      // ### MODIFIED call to use insert_nested_c5_value
-      if let Err(e_str) = insert_nested_c5_value(&mut root_value, &path_parts, value_to_insert) {
-        // Add context to the error
-        return Err(ConfigError::Internal(format!(
-          "Failed to reconstruct C5 structure for key '{}' at path '{}': {}",
-          full_key, relative_path, e_str
-        )));
+      if !relative_path.is_empty() {
+        let path_parts: Vec<&str> = relative_path.split('.').collect();
+        child_paths.insert(path_parts, c5_value.clone());
       }
     }
 
-    // If we iterated but found no keys *starting with* the prefix,
-    // it means the prefix might exist but has no children, or doesn't exist at all.
-    // Returning Null seems reasonable in this case.
-    if !found_children && matches!(&root_value, C5DataValue::Map(m) if m.is_empty()) {
-      Ok(C5DataValue::Null)
-    } else {
-      Ok(root_value)
+    // Handle the case where the prefix itself is a key to a non-map value.
+    if child_paths.is_empty() {
+      if let Some(value) = self.get_data(prefix) {
+        return Ok(value);
+      }
     }
+
+    if child_paths.is_empty() {
+      return Ok(C5DataValue::Null);
+    }
+
+    // 2. Kick off the recursive build process.
+    Ok(build_nested_value(child_paths))
   }
 }
 
@@ -468,17 +425,11 @@ impl C5StoreSubscriptions {
 
 impl C5StoreSubscriptions {
   pub fn add(&self, key_path: &str, listener: Box<ChangeListener>) {
-    self
-      ._simple_listeners
-      .write()
-      .insert(key_path.to_string(), listener);
+    self._simple_listeners.write().insert(key_path.to_string(), listener);
   }
 
   pub fn add_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
-    self
-      ._detailed_listeners
-      .write()
-      .insert(key_path.to_string(), listener);
+    self._detailed_listeners.write().insert(key_path.to_string(), listener);
   }
 
   pub fn notify_value_change(
@@ -508,11 +459,7 @@ impl C5StoreSubscriptions {
 }
 
 #[cfg(feature = "secrets")]
-fn _calc_hash_value(
-  algo: &String,
-  secret_key_name: &String,
-  encoded_data: &String,
-) -> Option<Vec<u8>> {
+fn _calc_hash_value(algo: &String, secret_key_name: &String, encoded_data: &String) -> Option<Vec<u8>> {
   let mut hasher = Sha256::new();
   hasher.update(algo.as_bytes());
   hasher.update(secret_key_name.as_bytes());
@@ -521,126 +468,82 @@ fn _calc_hash_value(
   return Some(hasher.finalize().to_vec());
 }
 
-/// Helper to insert a value into a nested `serde_json::Value` structure based on path parts.
-/// Attempts to create arrays for numeric keys.
-// ### ADDED insert_nested_c5_value helper
-fn insert_nested_c5_value<'a>(
-  mut node: &'a mut C5DataValue,
-  path_parts: &[&str],
-  value_to_insert: C5DataValue, // Now takes C5DataValue
-) -> Result<(), String> {
-  // Returns String for error message, consistent with original
-  for (i, part) in path_parts.iter().enumerate() {
-    if part.is_empty() {
-      return Err(format!(
-        "Encountered empty segment in path: {:?}",
-        path_parts
-      ));
-    }
-    let is_last = i == path_parts.len() - 1;
-    let maybe_index: Option<usize> = part.parse().ok();
+/// The main entry point for building a nested C5DataValue from paths.
+fn build_nested_value(paths: BTreeMap<Vec<&str>, C5DataValue>) -> C5DataValue {
+  build_nested_value_recursive(paths, false)
+}
 
-    if is_last {
-      match node {
-        C5DataValue::Map(map) => {
-          map.insert(part.to_string(), value_to_insert);
-          return Ok(());
-        }
-        C5DataValue::Array(arr) => {
-          if let Some(index) = maybe_index {
-            if index >= arr.len() {
-              // Pad with C5DataValue::Null
-              arr.resize_with(index + 1, || C5DataValue::Null);
-            }
-            arr[index] = value_to_insert;
-            return Ok(());
-          } else {
-            return Err(format!(
-              "Type mismatch: Cannot insert string key '{}' into an existing C5 Array.",
-              part
-            ));
-          }
-        }
-        _ => {
-          return Err(format!(
-            "Type mismatch: Cannot insert key '{}' into non-container C5Node (found {}).",
-            part,
-            node.type_name()
-          ));
-        }
-      }
-    } else {
-      let next_part_is_index: bool = path_parts
-        .get(i + 1)
-        .and_then(|p| p.parse::<usize>().ok())
-        .is_some();
-
-      let create_default_container = || {
-        if next_part_is_index {
-          C5DataValue::Array(vec![])
-        } else {
-          C5DataValue::Map(HashMap::new())
-        }
-      };
-
-      match node {
-        C5DataValue::Map(map) => {
-          let entry_node = map
-            .entry(part.to_string())
-            .or_insert_with(create_default_container);
-
-          if (next_part_is_index && !matches!(entry_node, C5DataValue::Array(_)))
-            || (!next_part_is_index && !matches!(entry_node, C5DataValue::Map(_)))
-          {
-            return Err(format!(
-              "Type mismatch at key '{}'. Expected C5 {} based on next key '{}', but found {}.",
-              part,
-              if next_part_is_index { "Array" } else { "Map" },
-              path_parts[i + 1],
-              entry_node.type_name()
-            ));
-          }
-          node = entry_node;
-        }
-        C5DataValue::Array(arr) => {
-          if let Some(index) = maybe_index {
-            if index >= arr.len() {
-              arr.resize_with(index + 1, || C5DataValue::Null);
-            }
-
-            let element = &mut arr[index];
-            if matches!(element, C5DataValue::Null) {
-              *element = create_default_container();
-            }
-
-            if (next_part_is_index && !matches!(element, C5DataValue::Array(_)))
-              || (!next_part_is_index && !matches!(element, C5DataValue::Map(_)))
-            {
-              return Err(format!(
-                "Type mismatch at index {}. Expected C5 {} based on next key '{}', but found {}.",
-                index,
-                if next_part_is_index { "Array" } else { "Map" },
-                path_parts[i + 1],
-                element.type_name()
-              ));
-            }
-            node = element;
-          } else {
-            return Err(format!(
-              "Type mismatch: Cannot traverse using string key '{}' within an existing C5 Array.",
-              part
-            ));
-          }
-        }
-        _ => {
-          return Err(format!(
-            "Type mismatch: Cannot traverse using key '{}' into non-container C5Node (found {}).",
-            part,
-            node.type_name()
-          ));
-        }
+/// The recursive engine for building the nested C5DataValue.
+/// The `force_map` parameter is used to override the array detection heuristic.
+fn build_nested_value_recursive(paths: BTreeMap<Vec<&str>, C5DataValue>, force_map: bool) -> C5DataValue {
+  // Base case: If there's one entry and its path is empty, it's a terminal value.
+  if paths.len() == 1 {
+    if let Some((path, value)) = paths.first_key_value() {
+      if path.is_empty() {
+        return value.clone();
       }
     }
   }
-  unreachable!("Loop should handle all path parts or error out.");
+
+  // Group paths by their first segment (e.g., "servers", "loadbalancer").
+  let mut groups: BTreeMap<&str, BTreeMap<Vec<&str>, C5DataValue>> = BTreeMap::new();
+  for (path, value) in paths {
+    if !path.is_empty() {
+      let group_key = path[0];
+      let remaining_path = path[1..].to_vec();
+      groups.entry(group_key).or_default().insert(remaining_path, value);
+    }
+  }
+
+  let child_keys: BTreeSet<&str> = groups.keys().cloned().collect();
+
+  // The key decision logic: Use the `force_map` override first, then apply array heuristic.
+  if !force_map && is_array_heuristic(&child_keys) {
+    // Build an Array
+    let mut array = Vec::new();
+    for i in 0..child_keys.len() {
+      let key_str = i.to_string();
+      if let Some(sub_paths) = groups.get(key_str.as_str()) {
+        // When building array elements, the next level is never forced to be a map.
+        array.push(build_nested_value_recursive(sub_paths.clone(), false));
+      }
+    }
+    C5DataValue::Array(array)
+  } else {
+    // Build a Map
+    let mut map = HashMap::new();
+    for (key, sub_paths) in groups {
+      // Check if this key signals that its children must be a map.
+      let force_map_for_next_level = key.ends_with("#map");
+      let final_key = key.strip_suffix("#map").unwrap_or(key);
+      map.insert(
+        final_key.to_string(),
+        build_nested_value_recursive(sub_paths, force_map_for_next_level),
+      );
+    }
+    C5DataValue::Map(map)
+  }
+}
+
+/// Implements the strict array detection rule.
+fn is_array_heuristic(keys: &BTreeSet<&str>) -> bool {
+  if keys.is_empty() {
+    return false;
+  }
+
+  for (i, key) in keys.iter().enumerate() {
+    // Try to parse the key as a usize.
+    if let Ok(num_key) = key.parse::<usize>() {
+      // Check if it matches the expected sequence index.
+      if num_key != i {
+        // Found a gap or non-sequential key. Not an array.
+        return false;
+      }
+    } else {
+      // Found a non-numeric key. Not an array.
+      return false;
+    }
+  }
+  // If we get through the whole loop, it's a perfect sequence.
+  true
 }

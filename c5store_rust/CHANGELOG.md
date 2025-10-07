@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10] - 2025-10-06
+
+### Added
+- Environment Variable Case Selection in C5Options
+
+### Fixed
+- A bug where numbered map keys regardeless of sequential order were deserialized as arrays instead of numbered key map. Use "#map" suffix to force map if really need to start at 0. Keys starting with 0 with a sequence of numbers will be deserialized as an array.
+
 ## [0.4.9] - 2025-10-06
 
 ### Fixed

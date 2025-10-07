@@ -5,6 +5,7 @@ mod config_source;
 mod data;
 pub mod error;
 mod internal;
+pub mod options;
 pub mod providers;
 #[cfg(feature = "secrets")]
 pub mod secrets;
@@ -14,6 +15,8 @@ pub mod serialization;
 pub mod telemetry;
 pub mod util;
 pub mod value;
+
+pub use options::*;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -36,26 +39,19 @@ use multimap::MultiMap;
 use parking_lot::Mutex;
 use scheduled_thread_pool::{JobHandle, ScheduledThreadPool};
 use serde::de::DeserializeOwned;
-use serialization::map_from_serde_yaml_valuemap;
-#[cfg(feature = "toml")]
-use serialization::map_from_toml_value_map;
 use util::build_flat_map;
 
 use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
-use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
+use crate::providers::C5ValueProvider;
 #[cfg(feature = "secrets")]
 use crate::secrets::SecretKeyStore;
-#[cfg(feature = "secrets")]
-use crate::secrets::systemd::SystemdCredential;
 #[cfg(feature = "secrets")]
 use crate::secrets::systemd::load_systemd_credentials;
 #[cfg(not(feature = "secrets"))]
 use crate::secrets_dummy::{SecretKeyStore, SecretKeyStoreConfiguratorFn};
 use crate::telemetry::{ConsoleLogger, Logger, StatsRecorder, StatsRecorderStub};
 use crate::value::C5DataValue;
-
-const DEFAULT_CHANGE_DELAY_PERIOD: u64 = 500;
 
 pub struct HydrateContext {
   pub logger: Arc<dyn Logger>,
@@ -87,57 +83,6 @@ pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
 // params: notify key path, key path, new value, old value (Option)
 pub type DetailedChangeListener = dyn Fn(&str, &str, &C5DataValue, Option<&C5DataValue>) -> () + Send + Sync;
 pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
-#[cfg(feature = "secrets")]
-pub type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
-
-#[cfg(feature = "secrets")]
-pub struct SecretOptions {
-  pub secret_key_path_segment: Option<String>,
-  pub secret_keys_path: Option<PathBuf>,
-  pub secret_key_store_configure_fn: Option<Box<SecretKeyStoreConfiguratorFn>>,
-  pub load_secret_keys_from_env: bool,
-  pub secret_key_env_prefix: Option<String>, // e.g., "C5_SECRETKEY_"
-  pub load_credentials_from_systemd: Vec<SystemdCredential>,
-}
-
-impl Default for SecretOptions {
-  fn default() -> Self {
-    return Self {
-      secret_key_path_segment: Some(".c5encval".to_string()),
-      secret_keys_path: None,
-      secret_key_store_configure_fn: None,
-      load_secret_keys_from_env: false,
-      secret_key_env_prefix: Some("C5_SECRETKEY_".to_string()),
-      load_credentials_from_systemd: Vec::new(),
-    };
-  }
-}
-
-#[cfg(not(feature = "secrets"))]
-#[derive(Default)]
-pub struct SecretOptions {}
-
-pub struct C5StoreOptions {
-  pub logger: Option<Arc<dyn Logger>>,
-  pub stats: Option<Arc<dyn StatsRecorder>>,
-  pub change_delay_period: Option<u64>,
-  pub secret_opts: SecretOptions,
-  #[cfg(feature = "dotenv")]
-  pub dotenv_path: Option<PathBuf>, // Path to .env file
-}
-
-impl Default for C5StoreOptions {
-  fn default() -> Self {
-    return Self {
-      logger: None,
-      stats: None,
-      change_delay_period: Some(DEFAULT_CHANGE_DELAY_PERIOD),
-      secret_opts: SecretOptions::default(),
-      #[cfg(feature = "dotenv")]
-      dotenv_path: None,
-    };
-  }
-}
 
 /// Define a struct to hold pending change info
 struct PendingChange {
@@ -242,7 +187,7 @@ impl ChangeNotifier {
 pub trait C5Store {
   fn get(&self, key_path: &str) -> Option<C5DataValue>;
 
-  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef>;
+  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef<'_>>;
 
   fn get_into<Val>(&self, key_path: &str) -> Result<Val, ConfigError>
   where
@@ -334,18 +279,18 @@ impl C5Store for C5StoreRoot {
             Ok(result) => return Ok(result), // Success with direct value!
             Err(direct_err) => {
               // It existed directly, but didn't deserialize.
-              // This *might* mean it wasn't the intended struct map,
-              // OR it could be a genuine partial map where flattened keys should complete it.
-              // Let's proceed to Strategy 2.
-              // If it's not a Map, prefix fetch is unlikely to help unless the prefix itself IS the struct.
               if !matches!(direct_c5_value, C5DataValue::Map(_)) && !key_path.is_empty() {
                 // If the direct value wasn't a map (and not at root), deserialization likely failed
                 // because the type was wrong (e.g., trying to deserialize a struct from a C5 String).
                 // The original error `direct_err` should be informative.
                 // We still fall through to prefix fetch, as the prefix itself might contain the map.
               }
-              // Log potential issue or decision to fallback?
-              // self._data_store._logger.debug(format!("Direct value at '{}' failed to deserialize fully ({:?}), trying prefix fetch.", key_path, direct_err));
+
+              // Log potential issue or decision to fallback
+              debug!(
+                "Direct value at '{}' failed to deserialize fully ({:?}), trying prefix fetch.",
+                key_path, direct_err
+              );
             }
           }
         }
@@ -398,7 +343,7 @@ impl C5Store for C5StoreRoot {
     }
   }
 
-  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef> {
+  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef<'_>> {
     return self._data_store.get_data_ref(key_path);
   }
 
@@ -469,7 +414,7 @@ impl C5Store for C5StoreBranch {
     return self._root.get_into_struct(&self._merge_key_path(key_path));
   }
 
-  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef> {
+  fn get_ref(&self, key_path: &str) -> Option<C5StoreDataValueRef<'_>> {
     return self._root.get_ref(&self._merge_key_path(key_path));
   }
 
@@ -756,7 +701,7 @@ pub fn create_c5store(
 
   let mut provided_data: MultiMap<String, C5DataValue> = MultiMap::new();
 
-  read_config_data(&config_file_paths, &data_store, &mut provided_data)?;
+  read_config_data(&config_file_paths, &data_store, &mut provided_data, options.env_case)?;
 
   let c5store_mgr = C5StoreMgr::new(
     root.clone(),
@@ -889,388 +834,6 @@ fn load_secret_keys_from_env(prefix: &str, secret_key_store: &mut SecretKeyStore
   }
 }
 
-/// Reads configuration from specified paths (files/directories), merges them,
-/// applies environment variable overrides, separates provider configurations,
-/// and applies the final values to the store via the provided setter function.
-///
-/// Handles YAML and TOML file formats. Reads environment variables starting
-/// with "C5_" using "__" as a separator (e.g., C5_DATABASE__HOST becomes database.host).
-///
-/// Order of precedence: Environment Variables > Last File Read > First File Read.
-pub fn read_config_data(
-  config_file_paths: &[PathBuf],
-  data_store: &C5DataStore, // Expecting the internal data store
-  provided_data: &mut MultiMap<String, C5DataValue>,
-) -> Result<(), ConfigError> {
-  let mut file_config_merged: HashMap<String, C5DataValue> = HashMap::new(); // Holds NESTED structure from files
-  let mut files_to_process: Vec<PathBuf> = Vec::new();
-  let mut file_source_map: HashMap<String, PathBuf> = HashMap::new(); // Tracks top-level key source file
-
-  // --- 1. Expand directories ---
-  for path in config_file_paths {
-    if path.is_dir() {
-      match read_dir(path) {
-        Ok(entries) => {
-          let mut dir_files: Vec<PathBuf> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|p| p.is_file())
-            .collect();
-          dir_files.sort();
-          files_to_process.extend(dir_files);
-        }
-        Err(e) => {
-          return Err(ConfigError::IoError {
-            path: path.clone(),
-            source: e,
-          });
-        }
-      }
-    } else if path.is_file() {
-      files_to_process.push(path.clone());
-    } else if path.exists() {
-      warn!(
-        "[Config] Warning: Path {:?} exists but is not a file or directory.",
-        path
-      );
-    } else {
-      // Only warn if it *doesn't* exist
-      debug!("[Config] Info: Optional config path {:?} not found.", path);
-    }
-  }
-
-  // --- 2. Load, Merge Files, and Extract Provider Configs (ONCE) ---
-  for file_path in &files_to_process {
-    let extension = file_path.extension().and_then(OsStr::to_str);
-    type ParserFn = fn(&str, &PathBuf) -> Result<HashMap<String, C5DataValue>, ConfigError>;
-    let parser: Option<ParserFn> = match extension {
-      Some("yaml") | Some("yml") => Some(|content, path| {
-        serde_yaml::from_str::<HashMap<String, serde_yaml::Value>>(content)
-          .map_err(|e| ConfigError::YamlParseError {
-            path: path.clone(),
-            source: e,
-          })
-          .map(map_from_serde_yaml_valuemap)
-      }),
-      #[cfg(feature = "toml")]
-      Some("toml") => Some(|content, path| {
-        toml::from_str::<HashMap<String, toml::Value>>(content)
-          .map_err(|e| ConfigError::TomlParseError {
-            path: path.clone(),
-            source: e,
-          })
-          .map(map_from_toml_value_map)
-      }),
-      _ => None,
-    };
-
-    if let Some(parse_fn) = parser {
-      match fs::read_to_string(&file_path) {
-        Ok(content) => {
-          match parse_fn(&content, file_path) {
-            Ok(mut config_from_file) => {
-              // Make mutable
-              debug!("[Config] Processing config from file {:?}", file_path);
-
-              // Track file source for top-level keys BEFORE extraction/merging
-              for key in config_from_file.keys() {
-                file_source_map.insert(key.clone(), file_path.clone());
-              }
-
-              // --- >>> Extract Provider Configs from this file's data <<< ---
-              // Note: This modifies config_from_file IN PLACE, removing provider sections
-              _take_provided_data(&mut config_from_file, provided_data);
-
-              // Merge remaining non-provider file data into the main nested accumulator
-              _merge(&mut file_config_merged, &config_from_file);
-            }
-            Err(e) => return Err(e),
-          }
-        }
-        Err(e) => {
-          if e.kind() == std::io::ErrorKind::NotFound {
-            warn!("[Config] Warning: File {:?} not found during read.", file_path);
-          } else {
-            return Err(ConfigError::IoError {
-              path: file_path.clone(),
-              source: e,
-            });
-          }
-        }
-      }
-    }
-  }
-  // `file_config_merged` now holds the merged NESTED, non-provider structure from all files.
-  // `provided_data` holds provider configs extracted from files.
-
-  // --- 3. Merge Environment Variables into the Nested Structure ---
-  const PREFIX: &str = "C5_";
-  const SEPARATOR: &str = "__";
-  let mut env_source_flat_map: HashMap<String, ConfigSource> = HashMap::new(); // Tracks flat sources for env vars
-
-  for (env_key_name, value_str) in env::vars() {
-    if env_key_name.starts_with(PREFIX) {
-      let trimmed_key = env_key_name.trim_start_matches(PREFIX);
-      let c5_key = trimmed_key.replace(SEPARATOR, ".").to_lowercase();
-
-      if c5_key.split('.').any(|part| part.is_empty()) {
-        warn!(
-          "[Config] Warning: Skipping env var '{}' due to invalid key format '{}'",
-          env_key_name, c5_key
-        );
-        continue;
-      }
-
-      debug!("[Config] Processing env var '{}' for key '{}'", env_key_name, c5_key);
-
-      // Store flat source info immediately
-      env_source_flat_map.insert(c5_key.clone(), ConfigSource::EnvironmentVariable(env_key_name.clone()));
-
-      // Use helper to merge this env var into the nested structure (`file_config_merged`)
-      if let Err(e) = merge_env_var_nested(&mut file_config_merged, &c5_key, &value_str) {
-        return Err(e); // Propagate conflict errors
-      }
-    }
-  }
-  // `file_config_merged` now holds the final combined NESTED structure (Files + Env Vars Merged, non-provider).
-
-  // --- 4. Flatten the Final Nested Structure ---
-  let mut final_flat_map = HashMap::new();
-  util::build_flat_map(&file_config_merged, &mut final_flat_map, String::new());
-  // `final_flat_map` now contains all config keys (e.g., "database.host", "database.port")
-
-  // --- 5. Apply to Store with Correct Sources ---
-  for (key, value) in final_flat_map {
-    // Determine source: Check env source map first, then file source map
-    let final_source = match env_source_flat_map.get(&key) {
-      Some(env_source) => env_source.clone(), // Env var took precedence
-      None => {
-        // Must have come from a file
-        let top_level_key = key.split('.').next().unwrap_or(&key);
-        file_source_map
-          .get(top_level_key)
-          .map(|path| ConfigSource::File(path.clone()))
-          .unwrap_or(ConfigSource::Unknown) // Fallback
-      }
-    };
-    // Set the flattened key-value pair in the actual data store
-    data_store._set_data_internal(&key, value, final_source);
-  }
-
-  Ok(())
-}
-
-// Helper function to attempt parsing env var strings into C5 types
-fn parse_env_var_value(value_str: &str) -> C5DataValue {
-  // Try bool
-  if value_str.eq_ignore_ascii_case("true") {
-    return C5DataValue::Boolean(true);
-  }
-  if value_str.eq_ignore_ascii_case("false") {
-    return C5DataValue::Boolean(false);
-  }
-  // Try integer (signed first) - use i64 as base
-  if let Ok(i) = value_str.parse::<i64>() {
-    return C5DataValue::Integer(i);
-  }
-  // Try unsigned integer - use u64 as base
-  if let Ok(u) = value_str.parse::<u64>() {
-    // Only use UInteger if it *didn't* parse as i64 (e.g., > i64::MAX)
-    // or perhaps prefer UInteger if non-negative? Let's stick to i64 if possible.
-    // If parsing as i64 succeeded, we use that. If not, try u64.
-    // A check could be added: if u <= i64::MAX as u64, return Integer(u as i64)?
-    // For simplicity now, if it parses as u64 *after* failing i64, use UInteger.
-    return C5DataValue::UInteger(u);
-  }
-  // Try float
-  if let Ok(f) = value_str.parse::<f64>() {
-    return C5DataValue::Float(f);
-  }
-  // Fallback to string
-  C5DataValue::String(value_str.to_string())
-}
-
-// Helper to merge a single environment variable into the nested structure
-fn merge_env_var_nested(
-  target_map: &mut HashMap<String, C5DataValue>,
-  c5_key: &str,
-  value_str: &str,
-) -> Result<(), ConfigError> {
-  let mut current_level_map = target_map; // Start with the root map
-  let key_parts: Vec<&str> = c5_key.split('.').collect();
-
-  for (i, part) in key_parts.iter().enumerate() {
-    if part.is_empty() {
-      // Check for invalid empty parts like a..b
-      return Err(ConfigError::Message(format!(
-        "Invalid key format: Encountered empty segment in env var key '{}'",
-        c5_key
-      )));
-    }
-
-    if i == key_parts.len() - 1 {
-      // --- Last part: Insert the final value ---
-      // `current_level_map` points to the correct parent map here.
-      current_level_map.insert(part.to_string(), parse_env_var_value(value_str));
-      return Ok(()); // Done
-    } else {
-      // --- Intermediate part: Ensure map exists and prepare descent ---
-      let entry = current_level_map.entry(part.to_string());
-
-      match entry {
-        std::collections::hash_map::Entry::Occupied(occ_entry) => {
-          // Entry exists, check if it's a map.
-          // We don't need to keep the borrow from occ_entry.
-          if !matches!(occ_entry.get(), C5DataValue::Map(_)) {
-            // Conflict: Entry exists but isn't a map
-            return Err(ConfigError::Message(format!(
-              "Env var key conflict: Cannot create nested structure for '{}' because part '{}' conflicts with an existing non-map value.",
-              c5_key, part
-            )));
-          }
-          // It is a map, allow occ_entry borrow to expire here.
-        }
-        std::collections::hash_map::Entry::Vacant(vac_entry) => {
-          // Entry doesn't exist, insert a new map.
-          vac_entry.insert(C5DataValue::Map(HashMap::new()));
-          // The borrow from vac_entry expires here.
-        }
-      }
-      // --- Borrow derived from `entry` ends here ---
-
-      // Now, we are guaranteed that current_level_map[*part] exists and is a Map.
-      // Get the mutable reference *from current_level_map* to descend for the *next* iteration.
-      // This borrow is valid as it's derived from `current_level_map` itself.
-      if let Some(C5DataValue::Map(next_map)) = current_level_map.get_mut(*part) {
-        // Update `current_level_map` to point to the nested map for the next loop iteration.
-        current_level_map = next_map;
-      } else {
-        // This case should be impossible if the match logic above is correct.
-        unreachable!(
-          "Map for part '{}' should exist here but wasn't found or wasn't a Map",
-          part
-        );
-      }
-    } // end intermediate part
-  } // end loop
-
-  // This point should be unreachable because the last part is handled inside the loop.
-  unreachable!("Loop should handle all parts or return early");
-}
-
-// Helper to recursively merge hashmaps, src overwrites dest
-// Ensures nested maps are merged correctly.
-fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataValue>) {
-  for (src_key, src_value) in src.iter() {
-    // Use iter()
-    match dest.entry(src_key.clone()) {
-      // Use entry API
-      std::collections::hash_map::Entry::Occupied(mut entry) => {
-        // Key exists in destination, get mutable ref to existing value
-        let dest_val = entry.get_mut();
-        // Check if both are maps
-        if let (C5DataValue::Map(dest_map), C5DataValue::Map(src_map)) = (dest_val, src_value) {
-          // Both are maps, recurse
-          _merge(dest_map, src_map);
-        } else {
-          // Not both maps (or different types), source overwrites destination value
-          // This handles cases like: dest=Map, src=String -> dest becomes String
-          // And: dest=String, src=Map -> dest becomes Map
-          *entry.into_mut() = src_value.clone(); // Use entry.into_mut() for direct replacement
-        }
-      }
-      std::collections::hash_map::Entry::Vacant(entry) => {
-        // Key doesn't exist in destination, insert clone from source
-        entry.insert(src_value.clone());
-      }
-    }
-  }
-}
-
-// fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataValue>) {
-//   for (src_key, src_value) in src.iter() {
-//     // Check if the key exists in the destination and if both values are maps.
-//     if let Some(C5DataValue::Map(dest_map)) = dest.get_mut(src_key) {
-//       if let C5DataValue::Map(src_map) = src_value {
-//         // Both are maps, so recurse to merge them deeply.
-//         _merge(dest_map, src_map);
-//         // Continue to the next key, skipping the overwrite below.
-//         continue;
-//       }
-//     }
-
-//     // If the key doesn't exist in the destination, OR if one of the values
-//     // is not a map (e.g., an array, string, number), then the source value
-//     // completely overwrites the destination value.
-//     dest.insert(src_key.clone(), src_value.clone());
-//   }
-// }
-
-// Helper to extract provider configurations (no changes needed inside, just signature)
-fn _take_provided_data(
-  raw_config_data: &mut HashMap<String, C5DataValue>,
-  provided_data: &mut MultiMap<String, C5DataValue>,
-) {
-  _take_provided_data_helper(raw_config_data, provided_data, String::new());
-}
-
-// Recursive helper for _take_provided_data (no changes needed)
-fn _take_provided_data_helper(
-  current_map: &mut HashMap<String, C5DataValue>,
-  provided_data: &mut MultiMap<String, C5DataValue>,
-  current_keypath: String,
-) {
-  let keys: Vec<String> = current_map.keys().cloned().collect();
-
-  for key in keys {
-    let new_keypath = if current_keypath.is_empty() {
-      key.clone()
-    } else {
-      format!("{}.{}", current_keypath, key)
-    };
-
-    let is_provider_config = if let Some(C5DataValue::Map(data_map)) = current_map.get(&key) {
-      data_map.contains_key(CONFIG_KEY_PROVIDER)
-    } else {
-      false
-    };
-
-    if is_provider_config {
-      if let Some(C5DataValue::Map(mut data_map)) = current_map.remove(&key) {
-        data_map.insert(CONFIG_KEY_KEYPATH.to_string(), C5DataValue::String(new_keypath.clone()));
-        data_map.insert(CONFIG_KEY_KEYNAME.to_string(), C5DataValue::String(key.clone()));
-        if let Some(C5DataValue::String(provider_name)) = data_map.get(CONFIG_KEY_PROVIDER) {
-          provided_data.insert(provider_name.clone(), C5DataValue::Map(data_map));
-        } else {
-          warn!(
-            "[Config] Error: Provider config at '{}' has non-string value for '.provider'",
-            new_keypath
-          );
-        }
-      }
-    } else if let Some(C5DataValue::Map(sub_map)) = current_map.get_mut(&key) {
-      _take_provided_data_helper(sub_map, provided_data, new_keypath);
-      if sub_map.is_empty() {
-        current_map.remove(&key);
-      }
-    }
-  }
-}
-
-pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, region: &str) -> Vec<PathBuf> {
-  let mut paths = vec![];
-
-  paths.push(PathBuf::from(format!("{}/common.yaml", config_dir)));
-  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, release_env).as_str()));
-  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, env).as_str()));
-  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, region).as_str()));
-  paths.push(PathBuf::from(
-    format!("{}/{}-{}.yaml", config_dir, env, region).as_str(),
-  ));
-
-  return paths;
-}
-
 #[cfg(test)]
 mod tests {
   use std::collections::HashMap;
@@ -1282,11 +845,13 @@ mod tests {
   use log::info;
   use serde::Deserialize;
   use serial_test::serial;
+  use tempfile::tempdir;
 
-  use crate::C5Store;
   use crate::error::ConfigError;
+  use crate::providers::C5FileValueProvider;
   use crate::secrets::{Base64SecretDecryptor, SecretKeyStore};
   use crate::value::C5DataValue;
+  use crate::{C5Store, Case};
   use crate::{C5StoreMgr, C5StoreOptions, SecretOptions, create_c5store, default_config_paths};
 
   // Helper struct for get_into_struct tests
@@ -1536,7 +1101,9 @@ mod tests {
       env::set_var("C5_FEATURES__API_V2", "false");
     }
 
-    let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Store creation failed");
+    let mut options = C5StoreOptions::default();
+    options.env_case = Case::Snake;
+    let (c5store, _c5store_mgr) = create_c5store(vec![], Some(options)).expect("Store creation failed");
 
     let res = c5store.get_into_struct::<FeatureFlags>("features");
     assert!(
@@ -1552,11 +1119,6 @@ mod tests {
       "Expected ConversionError for 'maybe' string with specific message, got {:?}",
       res
     );
-
-    unsafe {
-      env::remove_var("C5_FEATURES__NEW_DASHBOARD");
-      env::remove_var("C5_FEATURES__API_V2");
-    }
   }
 
   #[test]
@@ -1959,34 +1521,30 @@ services:
     assert_eq!(config, expected_config);
   }
 
-  // Add these to your `use` statements at the top of the test module
-  use crate::providers::C5FileValueProvider;
-  use tempfile::{NamedTempFile, tempdir};
-
-  // The struct definitions from step 1 go here...
-  #[derive(Deserialize, Debug, PartialEq)]
-  #[serde(rename_all = "camelCase")]
-  struct CommodityWeights {
-    #[serde(flatten)]
-    weights: HashMap<u32, u32>,
-  }
-
-  #[derive(Deserialize, Debug, PartialEq)]
-  #[serde(rename_all = "camelCase")]
-  struct Sector {
-    id: u32,
-    commodity_weights: CommodityWeights,
-  }
-
-  #[derive(Deserialize, Debug, PartialEq)]
-  struct RegionData {
-    region: u32,
-    sectors: Vec<Sector>,
-  }
-
   #[test]
   #[serial]
   fn test_get_into_struct_from_file_provider_with_root_array() {
+    // The struct definitions from step 1 go here...
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct CommodityWeights {
+      #[serde(flatten)]
+      weights: HashMap<u32, u32>,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct Sector {
+      id: u32,
+      commodity_weights: CommodityWeights,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct RegionData {
+      region: u32,
+      sectors: Vec<Sector>,
+    }
+
     init_logger();
 
     // --- 1. Create a controlled temporary directory for all test files ---
@@ -2063,13 +1621,323 @@ market:
     assert_eq!(regions[0].region, 2198);
     assert_eq!(regions[0].sectors.len(), 1);
     assert_eq!(regions[0].sectors[0].id, 1);
-    assert_eq!(
-      regions[0].sectors[0].commodity_weights.weights.get(&120235),
-      Some(&665)
-    );
+    assert_eq!(regions[0].sectors[0].commodity_weights.weights.get(&120235), Some(&665));
 
     // Check the second region
     assert_eq!(regions[1].region, 2199);
     assert_eq!(regions[1].sectors[0].commodity_weights.weights.get(&120877), Some(&75));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_into_struct_with_numeric_string_keys() {
+    init_logger();
+
+    // This struct represents the entire YAML file's content.
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct MilestoneConfig {
+      // The field name matches the YAML key.
+      // The HashMap key type `u32` matches our target. Our fix will handle
+      // converting the string keys "2", "5", "10" from the YAML into u32.
+      milestone_contracts_by_tier: HashMap<u32, Vec<String>>,
+    }
+
+    // --- 1. Create a controlled temporary directory for all test files ---
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let base_path = temp_dir.path();
+
+    // --- 2. Prepare the data file with the milestone contracts ---
+    // This YAML contains the map with numeric keys.
+    let data_yaml_content = r#"
+milestoneContractsByTier:
+  2:
+    - "milestone_reach_100k_net_worth"
+  5:
+    - "milestone_first_successful_derivative"
+    - "milestone_unlock_first_foreign_exchange"
+  10:
+    - "milestone_become_a_millionaire"
+"#;
+    let data_file_path = base_path.join("milestone_data.yaml");
+    let mut data_file = std::fs::File::create(&data_file_path).unwrap();
+    write!(data_file, "{}", data_yaml_content).unwrap();
+
+    // --- 3. Prepare the main config file to set up the provider ---
+    // This tells the store to load the data from the file provider
+    // and place it under the key "milestones".
+    let main_config_content = r#"
+milestones:
+  .provider: "resources"
+  path: "milestone_data.yaml"
+  format: "yaml"
+"#;
+    let main_config_path = base_path.join("main_config.yaml");
+    let mut main_config_file = std::fs::File::create(&main_config_path).unwrap();
+    write!(main_config_file, "{}", main_config_content).unwrap();
+
+    // --- 4. Initialize C5Store and the Provider ---
+    let (c5store, mut c5store_mgr) = create_c5store(vec![main_config_path], None).expect("Test store creation failed");
+
+    // Register the provider, giving it the temp directory as its base path.
+    c5store_mgr.set_value_provider(
+      "resources", // This name matches ".provider" in the YAML
+      C5FileValueProvider::default(base_path.to_str().unwrap()),
+      0, // No recurring refresh
+    );
+
+    // --- 5. Perform Deserialization and Assertions ---
+    // We ask for the `MilestoneConfig` struct from the "milestones" key.
+    // The provider loaded the YAML content, which is a map, into a C5DataValue::Map at this key.
+    let result = c5store.get_into_struct::<MilestoneConfig>("milestones");
+
+    // Assert that the entire operation was successful. This is the main check.
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize struct with numeric map keys: {:?}",
+      result.err()
+    );
+
+    let config = result.unwrap();
+
+    // Assert that the deserialized data is correct.
+    assert_eq!(
+      config.milestone_contracts_by_tier.len(),
+      3,
+      "Should have 3 tiers in the map"
+    );
+
+    // Check the contents for tier 5 specifically.
+    let tier_5_contracts = config.milestone_contracts_by_tier.get(&5).expect("Tier 5 should exist");
+    assert_eq!(tier_5_contracts.len(), 2, "Tier 5 should have two contracts");
+    assert_eq!(tier_5_contracts[0], "milestone_first_successful_derivative");
+    assert_eq!(tier_5_contracts[1], "milestone_unlock_first_foreign_exchange");
+
+    // Check the contents for tier 10.
+    let tier_10_contracts = config
+      .milestone_contracts_by_tier
+      .get(&10)
+      .expect("Tier 10 should exist");
+    assert_eq!(tier_10_contracts.len(), 1);
+    assert_eq!(tier_10_contracts[0], "milestone_become_a_millionaire");
+  }
+
+  #[test]
+  #[serial]
+  fn test_reconstruction_logic_for_arrays_and_maps() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct ReconstructionTestConfig {
+      // Case 1: An unambiguous array
+      servers: Vec<String>,
+
+      // Case 2: An unambiguous map with string keys
+      settings: HashMap<String, bool>,
+
+      // Case 3: A map with non-sequential numeric keys
+      tiers: HashMap<u8, String>,
+
+      // Case 4: A map with sequential numeric keys that must be forced
+      // This is the critical test for the `#map` suffix.
+      event_handlers: HashMap<u8, String>,
+    }
+
+    init_logger();
+
+    // --- 1. Set up environment variables for all test cases ---
+    // We use `std::env::set_var` inside a `serial_test` to avoid race conditions.
+
+    unsafe {
+      // Case 1: Should be detected as an Array
+      std::env::set_var("C5_RECON__SERVERS__0", "alpha.server.com");
+      std::env::set_var("C5_RECON__SERVERS__1", "beta.server.com");
+
+      // Case 2: Should be detected as a Map (non-numeric keys)
+      std::env::set_var("C5_RECON__SETTINGS__ENABLE_LOGGING", "true");
+      std::env::set_var("C5_RECON__SETTINGS__USE_TLS", "false");
+
+      // Case 3: Should be detected as a Map (numeric but not a sequence from 0)
+      std::env::set_var("C5_RECON__TIERS__5", "Standard");
+      std::env::set_var("C5_RECON__TIERS__10", "Premium");
+
+      // Case 4: Ambiguous case. WOULD be detected as an array without the suffix.
+      // The `#map` suffix on the parent key `EVENT_HANDLERS` forces it to be a Map.
+      std::env::set_var("C5_RECON__EVENT_HANDLERS#map__0", "on_start");
+      std::env::set_var("C5_RECON__EVENT_HANDLERS#map__1", "on_message");
+      std::env::set_var("C5_RECON__EVENT_HANDLERS#map__2", "on_shutdown");
+    }
+
+    // --- 2. Initialize C5Store from environment variables only ---
+    // We pass an empty Vec of paths to only load from the environment.
+    let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Test store creation from env failed");
+
+    // --- 3. Perform Deserialization ---
+    // We deserialize from the "recon" prefix.
+    let result = c5store.get_into_struct::<ReconstructionTestConfig>("recon");
+
+    // --- 4. Clean up environment variables immediately ---
+    // This ensures other tests aren't affected.
+    unsafe {
+      std::env::remove_var("C5_RECON__SERVERS__0");
+      std::env::remove_var("C5_RECON__SERVERS__1");
+      std::env::remove_var("C5_RECON__SETTINGS__ENABLE_LOGGING");
+      std::env::remove_var("C5_RECON__SETTINGS__USE_TLS");
+      std::env::remove_var("C5_RECON__TIERS__5");
+      std::env::remove_var("C5_RECON__TIERS__10");
+      std::env::remove_var("C5_RECON__EVENT_HANDLERS#map__0");
+      std::env::remove_var("C5_RECON__EVENT_HANDLERS#map__1");
+      std::env::remove_var("C5_RECON__EVENT_HANDLERS#map__2");
+    }
+
+    // --- 5. Assertions ---
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize the comprehensive reconstruction config. Error: {:?}",
+      result.err()
+    );
+
+    let config = result.unwrap();
+
+    // Assert Case 1: Array
+    assert_eq!(config.servers, vec!["alpha.server.com", "beta.server.com"]);
+
+    // Assert Case 2: String-keyed Map
+    let mut expected_settings = HashMap::new();
+    expected_settings.insert("enableLogging".to_string(), true);
+    expected_settings.insert("useTls".to_string(), false);
+    assert_eq!(config.settings, expected_settings);
+
+    // Assert Case 3: Numeric-keyed Map (non-sequential)
+    let mut expected_tiers = HashMap::new();
+    expected_tiers.insert(5, "Standard".to_string());
+    expected_tiers.insert(10, "Premium".to_string());
+    assert_eq!(config.tiers, expected_tiers);
+
+    // Assert Case 4: Numeric-keyed Map (sequential, forced by #map suffix)
+    let mut expected_handlers = HashMap::new();
+    expected_handlers.insert(0, "on_start".to_string());
+    expected_handlers.insert(1, "on_message".to_string());
+    expected_handlers.insert(2, "on_shutdown".to_string());
+    assert_eq!(config.event_handlers, expected_handlers);
+  }
+
+  #[test]
+  #[serial]
+  fn test_reconstruction_logic_from_file_provider() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct ReconstructionTestConfig {
+      servers: Vec<String>,
+      settings: HashMap<String, bool>,
+      tiers: HashMap<u8, String>,
+      event_handlers: HashMap<u8, String>,
+      milestone_contracts_by_tier: HashMap<u32, Vec<String>>,
+    }
+
+    init_logger();
+
+    // --- 1. Create a temporary directory for our config files ---
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let base_path = temp_dir.path();
+
+    // --- 2. Prepare the data file with the reconstruction cases ---
+    // This file will be loaded by the provider. Note the "eventHandlers#map" key.
+    let data_yaml_content = r#"
+servers:
+  - "alpha.server.com"
+  - "beta.server.com"
+
+settings:
+  enableLogging: true
+  useTls: false
+
+tiers:
+  5: "Standard"
+  10: "Premium"
+
+"eventHandlers#map":
+  0: "on_start"
+  1: "on_message"
+  2: "on_shutdown"
+
+milestoneContractsByTier:
+  2:
+    - "milestone_reach_100k_net_worth"
+  5:
+    - "milestone_first_successful_derivative"
+    - "milestone_unlock_first_foreign_exchange"
+  10:
+    - "milestone_become_a_millionaire"
+"#;
+    let data_file_path = base_path.join("data.yaml");
+    let mut data_file = File::create(&data_file_path).unwrap();
+    write!(data_file, "{}", data_yaml_content).unwrap();
+
+    // --- 3. Prepare the main config file that sets up the provider ---
+    let main_config_content = r#"
+recon:
+  .provider: "resources"
+  path: "data.yaml"
+  format: "yaml"
+"#;
+    let main_config_path = base_path.join("main_config.yaml");
+    let mut main_config_file = File::create(&main_config_path).unwrap();
+    write!(main_config_file, "{}", main_config_content).unwrap();
+
+    // --- 4. Initialize C5Store and the Provider ---
+    let (c5store, mut c5store_mgr) = create_c5store(vec![main_config_path], None).expect("Test store creation failed");
+
+    // Register the provider, using the temp directory as its base path.
+    c5store_mgr.set_value_provider(
+      "resources",
+      C5FileValueProvider::default(base_path.to_str().unwrap()),
+      0, // No recurring refresh
+    );
+
+    // --- 5. Perform Deserialization and Assertions ---
+    let result = c5store.get_into_struct::<ReconstructionTestConfig>("recon");
+
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize the reconstruction config from file provider. Error: {:?}",
+      result.err()
+    );
+
+    let config = result.unwrap();
+
+    // Assert Case 1: Array
+    assert_eq!(config.servers, vec!["alpha.server.com", "beta.server.com"]);
+
+    // Assert Case 2: String-keyed Map (camelCase)
+    let mut expected_settings = HashMap::new();
+    expected_settings.insert("enableLogging".to_string(), true);
+    expected_settings.insert("useTls".to_string(), false);
+    assert_eq!(config.settings, expected_settings);
+
+    // Assert Case 3: Numeric-keyed Map (non-sequential)
+    let mut expected_tiers = HashMap::new();
+    expected_tiers.insert(5, "Standard".to_string());
+    expected_tiers.insert(10, "Premium".to_string());
+    assert_eq!(config.tiers, expected_tiers);
+
+    // Assert Case 4: Numeric-keyed Map (sequential, forced by #map suffix)
+    let mut expected_handlers = HashMap::new();
+    expected_handlers.insert(0, "on_start".to_string());
+    expected_handlers.insert(1, "on_message".to_string());
+    expected_handlers.insert(2, "on_shutdown".to_string());
+    assert_eq!(config.event_handlers, expected_handlers);
+
+    // Assert Case 5: Numeric-keyed Map with Array values
+    let mut expected_milestones = HashMap::new();
+    expected_milestones.insert(2, vec!["milestone_reach_100k_net_worth".to_string()]);
+    expected_milestones.insert(
+      5,
+      vec![
+        "milestone_first_successful_derivative".to_string(),
+        "milestone_unlock_first_foreign_exchange".to_string(),
+      ],
+    );
+    expected_milestones.insert(10, vec!["milestone_become_a_millionaire".to_string()]);
+    assert_eq!(config.milestone_contracts_by_tier, expected_milestones);
   }
 }
