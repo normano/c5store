@@ -30,6 +30,8 @@ use curve25519_parser::parse_openssl_25519_privkey;
 #[cfg(feature = "dotenv")]
 use dotenvy;
 use error::ConfigError;
+
+use log::{debug, error, warn};
 use multimap::MultiMap;
 use parking_lot::Mutex;
 use scheduled_thread_pool::{JobHandle, ScheduledThreadPool};
@@ -41,9 +43,7 @@ use util::build_flat_map;
 
 use crate::data::HashsetMultiMap;
 use crate::internal::{C5DataStore, C5StoreDataValueRef, C5StoreSubscriptions};
-use crate::providers::{
-  C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER,
-};
+use crate::providers::{C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER};
 #[cfg(feature = "secrets")]
 use crate::secrets::SecretKeyStore;
 #[cfg(feature = "secrets")]
@@ -85,8 +85,7 @@ impl HydrateContext {
 // params: notify key path, key path, value
 pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
 // params: notify key path, key path, new value, old value (Option)
-pub type DetailedChangeListener =
-  dyn Fn(&str, &str, &C5DataValue, Option<&C5DataValue>) -> () + Send + Sync;
+pub type DetailedChangeListener = dyn Fn(&str, &str, &C5DataValue, Option<&C5DataValue>) -> () + Send + Sync;
 pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
 #[cfg(feature = "secrets")]
 pub type SecretKeyStoreConfiguratorFn = dyn FnMut(&mut SecretKeyStore);
@@ -156,11 +155,7 @@ struct ChangeNotifier {
 }
 
 impl ChangeNotifier {
-  pub fn new(
-    delay_period: Duration,
-    data_store: C5DataStore,
-    subscriptions: C5StoreSubscriptions,
-  ) -> ChangeNotifier {
+  pub fn new(delay_period: Duration, data_store: C5DataStore, subscriptions: C5StoreSubscriptions) -> ChangeNotifier {
     return ChangeNotifier {
       debounce_job_handle: Arc::new(Mutex::new(RefCell::new(None))),
       thread_pool: Arc::new(
@@ -184,13 +179,10 @@ impl ChangeNotifier {
   ) {
     let debounce_job_lock = self.debounce_job_handle.lock();
 
-    self.pending_changes.lock().insert(
-      key.to_string(),
-      PendingChange {
-        old_value,
-        new_value,
-      },
-    );
+    self
+      .pending_changes
+      .lock()
+      .insert(key.to_string(), PendingChange { old_value, new_value });
 
     let should_schedule = debounce_job_lock.borrow().is_none();
     if should_schedule {
@@ -199,8 +191,7 @@ impl ChangeNotifier {
       let subscriptions = self._subscriptions.clone();
 
       let job = move || {
-        let changes_to_process: HashMap<String, PendingChange> =
-          pending_changes_arc.lock().drain().collect();
+        let changes_to_process: HashMap<String, PendingChange> = pending_changes_arc.lock().drain().collect();
 
         let debounce_job_lock_inner = debounce_mut.lock();
         let mut job_handle_borrow_inner = debounce_job_lock_inner.borrow_mut(); // Mutable borrow here is fine
@@ -234,7 +225,7 @@ impl ChangeNotifier {
                 subscriptions.notify_value_change(
                   notify_path,
                   changed_key,
-                  &change_detail.new_value, // Pass reference to stored new value
+                  &change_detail.new_value,         // Pass reference to stored new value
                   change_detail.old_value.as_ref(), // Pass reference to stored Option<old value>
                 );
               }
@@ -243,11 +234,7 @@ impl ChangeNotifier {
         }
       };
 
-      debounce_job_lock.replace(Some(
-        self
-          .thread_pool
-          .execute_after(self.delay_period.clone(), job),
-      ));
+      debounce_job_lock.replace(Some(self.thread_pool.execute_after(self.delay_period.clone(), job)));
     }
   }
 }
@@ -495,15 +482,11 @@ impl C5Store for C5StoreBranch {
   }
 
   fn subscribe(&self, key_path: &str, listener: Box<ChangeListener>) {
-    self
-      ._root
-      .subscribe(&self._merge_key_path(key_path), listener);
+    self._root.subscribe(&self._merge_key_path(key_path), listener);
   }
 
   fn subscribe_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>) {
-    self
-      ._root
-      .subscribe_detailed(&self._merge_key_path(key_path), listener);
+    self._root.subscribe_detailed(&self._merge_key_path(key_path), listener);
   }
 
   fn branch(&self, key_path: &str) -> C5StoreBranch {
@@ -658,7 +641,7 @@ pub fn create_c5store(
   #[cfg(feature = "dotenv")]
   {
     if let Some(dotenv_path) = &options.dotenv_path {
-      println!("[dotenv] Loading environment from {:?}", dotenv_path); // Optional log
+      debug!("[dotenv] Loading environment from {:?}", dotenv_path); // Optional log
       match dotenvy::from_path(dotenv_path) {
         Ok(_) => {}
         Err(e) if e.not_found() => {} // Ignore if file not found, common case
@@ -686,10 +669,7 @@ pub fn create_c5store(
       (configure_fn)(&mut secret_key_store);
     }
 
-    load_secret_key_files(
-      options.secret_opts.secret_keys_path.as_ref(),
-      &mut secret_key_store,
-    )?;
+    load_secret_key_files(options.secret_opts.secret_keys_path.as_ref(), &mut secret_key_store)?;
 
     if options.secret_opts.load_secret_keys_from_env {
       let prefix = options
@@ -736,12 +716,7 @@ pub fn create_c5store(
     }
   };
 
-  let data_store = C5DataStore::new(
-    logger.clone(),
-    stats.clone(),
-    secret_segment,
-    secret_key_store.clone(),
-  );
+  let data_store = C5DataStore::new(logger.clone(), stats.clone(), secret_segment, secret_key_store.clone());
   let subscriptions = C5StoreSubscriptions::new();
   let root = C5StoreRoot::new(data_store.clone(), subscriptions.clone());
   let change_notifier = Arc::new(ChangeNotifier::new(
@@ -795,25 +770,6 @@ pub fn create_c5store(
   return Ok((root, c5store_mgr));
 }
 
-// Helper function to read environment variables
-fn process_environment_variables(set_data_fn: Arc<SetDataFn>) {
-  const PREFIX: &str = "C5_";
-  const SEPARATOR: &str = "__";
-
-  for (key, value) in env::vars() {
-    if key.starts_with(PREFIX) {
-      let trimmed_key = key.trim_start_matches(PREFIX);
-      let c5_key = trimmed_key.replace(SEPARATOR, ".").to_lowercase(); // Convert C5_DB__HOST to db.host
-
-      // PHASE 1 CHANGE: Treat env vars as strings initially.
-      // Let get_into/get_into_struct handle final conversion.
-      // More complex parsing could be added later if needed.
-      println!("[EnvVar] Setting '{}' from env var '{}'", c5_key, key); // Optional: Add logging
-      set_data_fn(&c5_key, C5DataValue::String(value));
-    }
-  }
-}
-
 #[cfg(feature = "secrets")]
 pub fn load_secret_key_files(
   secret_keys_path_str: Option<&PathBuf>,
@@ -826,10 +782,9 @@ pub fn load_secret_key_files(
   let skpath = secret_keys_path_str.unwrap();
 
   if !skpath.exists() {
-    println!(
-      "[Secrets] Warning: Secret keys path {:?} does not exist.",
-      skpath
-    );
+    use log::warn;
+
+    warn!("[Secrets] Warning: Secret keys path {:?} does not exist.", skpath);
     return Ok(()); // Don't error if path doesn't exist
   }
 
@@ -861,7 +816,7 @@ pub fn load_secret_key_files(
       source: e,
     });
     if key_result.is_err() {
-      eprintln!(
+      error!(
         "[Secrets] Error reading key file {:?}: {:?}",
         entry_path,
         key_result.err()
@@ -874,7 +829,7 @@ pub fn load_secret_key_files(
     let file_name_os = entry_path.file_name();
 
     if file_ext_os.is_none() || file_name_os.is_none() {
-      eprintln!(
+      error!(
         "[Secrets] Skipping file with missing name or extension: {:?}",
         entry_path
       );
@@ -884,10 +839,7 @@ pub fn load_secret_key_files(
     let file_name = file_name_os.unwrap().to_str().unwrap_or("");
 
     if file_name.is_empty() || file_name.len() <= file_ext.len() + 1 {
-      eprintln!(
-        "[Secrets] Skipping file with invalid name format: {:?}",
-        entry_path
-      );
+      warn!("[Secrets] Skipping file with invalid name format: {:?}", entry_path);
       continue;
     }
 
@@ -902,19 +854,13 @@ pub fn load_secret_key_files(
       match parse_openssl_25519_privkey(&key) {
         Ok(parsed_key) => key = parsed_key.to_bytes().to_vec(),
         Err(e) => {
-          eprintln!(
-            "[Secrets] Error parsing PEM key file {:?}: {}",
-            entry_path, e
-          );
+          warn!("[Secrets] Error parsing PEM key file {:?}: {}", entry_path, e);
           continue; // Skip invalid PEM files
         }
       }
     }
 
-    println!(
-      "[Secrets] Loading key '{}' from file {:?}",
-      key_name, entry_path
-    ); // Optional log
+    debug!("[Secrets] Loading key '{}' from file {:?}", key_name, entry_path); // Optional log
     secret_key_store.set_key(key_name, key);
   }
   Ok(())
@@ -929,14 +875,11 @@ fn load_secret_keys_from_env(prefix: &str, secret_key_store: &mut SecretKeyStore
       // Assume value is base64 encoded key bytes
       match base64::engine::general_purpose::STANDARD.decode(&value) {
         Ok(key_bytes) => {
-          println!(
-            "[Secrets] Loading key '{}' from env var '{}'",
-            key_name, key
-          ); // Optional log
+          debug!("[Secrets] Loading key '{}' from env var '{}'", key_name, key); // Optional log
           secret_key_store.set_key(&key_name, key_bytes);
         }
         Err(e) => {
-          eprintln!(
+          error!(
             "[Secrets] Error base64 decoding secret key from env var '{}': {}",
             key, e
           );
@@ -986,13 +929,13 @@ pub fn read_config_data(
     } else if path.is_file() {
       files_to_process.push(path.clone());
     } else if path.exists() {
-      println!(
+      warn!(
         "[Config] Warning: Path {:?} exists but is not a file or directory.",
         path
       );
     } else {
       // Only warn if it *doesn't* exist
-      // println!("[Config] Info: Optional config path {:?} not found.", path);
+      debug!("[Config] Info: Optional config path {:?} not found.", path);
     }
   }
 
@@ -1027,7 +970,7 @@ pub fn read_config_data(
           match parse_fn(&content, file_path) {
             Ok(mut config_from_file) => {
               // Make mutable
-              println!("[Config] Processing config from file {:?}", file_path);
+              debug!("[Config] Processing config from file {:?}", file_path);
 
               // Track file source for top-level keys BEFORE extraction/merging
               for key in config_from_file.keys() {
@@ -1046,10 +989,7 @@ pub fn read_config_data(
         }
         Err(e) => {
           if e.kind() == std::io::ErrorKind::NotFound {
-            println!(
-              "[Config] Warning: File {:?} not found during read.",
-              file_path
-            );
+            warn!("[Config] Warning: File {:?} not found during read.", file_path);
           } else {
             return Err(ConfigError::IoError {
               path: file_path.clone(),
@@ -1074,23 +1014,17 @@ pub fn read_config_data(
       let c5_key = trimmed_key.replace(SEPARATOR, ".").to_lowercase();
 
       if c5_key.split('.').any(|part| part.is_empty()) {
-        eprintln!(
+        warn!(
           "[Config] Warning: Skipping env var '{}' due to invalid key format '{}'",
           env_key_name, c5_key
         );
         continue;
       }
 
-      println!(
-        "[Config] Processing env var '{}' for key '{}'",
-        env_key_name, c5_key
-      );
+      debug!("[Config] Processing env var '{}' for key '{}'", env_key_name, c5_key);
 
       // Store flat source info immediately
-      env_source_flat_map.insert(
-        c5_key.clone(),
-        ConfigSource::EnvironmentVariable(env_key_name.clone()),
-      );
+      env_source_flat_map.insert(c5_key.clone(), ConfigSource::EnvironmentVariable(env_key_name.clone()));
 
       // Use helper to merge this env var into the nested structure (`file_config_merged`)
       if let Err(e) = merge_env_var_nested(&mut file_config_merged, &c5_key, &value_str) {
@@ -1303,18 +1237,12 @@ fn _take_provided_data_helper(
 
     if is_provider_config {
       if let Some(C5DataValue::Map(mut data_map)) = current_map.remove(&key) {
-        data_map.insert(
-          CONFIG_KEY_KEYPATH.to_string(),
-          C5DataValue::String(new_keypath.clone()),
-        );
-        data_map.insert(
-          CONFIG_KEY_KEYNAME.to_string(),
-          C5DataValue::String(key.clone()),
-        );
+        data_map.insert(CONFIG_KEY_KEYPATH.to_string(), C5DataValue::String(new_keypath.clone()));
+        data_map.insert(CONFIG_KEY_KEYNAME.to_string(), C5DataValue::String(key.clone()));
         if let Some(C5DataValue::String(provider_name)) = data_map.get(CONFIG_KEY_PROVIDER) {
           provided_data.insert(provider_name.clone(), C5DataValue::Map(data_map));
         } else {
-          eprintln!(
+          warn!(
             "[Config] Error: Provider config at '{}' has non-string value for '.provider'",
             new_keypath
           );
@@ -1329,24 +1257,13 @@ fn _take_provided_data_helper(
   }
 }
 
-pub fn default_config_paths(
-  config_dir: &str,
-  release_env: &str,
-  env: &str,
-  region: &str,
-) -> Vec<PathBuf> {
+pub fn default_config_paths(config_dir: &str, release_env: &str, env: &str, region: &str) -> Vec<PathBuf> {
   let mut paths = vec![];
 
   paths.push(PathBuf::from(format!("{}/common.yaml", config_dir)));
-  paths.push(PathBuf::from(
-    format!("{}/{}.yaml", config_dir, release_env).as_str(),
-  ));
-  paths.push(PathBuf::from(
-    format!("{}/{}.yaml", config_dir, env).as_str(),
-  ));
-  paths.push(PathBuf::from(
-    format!("{}/{}.yaml", config_dir, region).as_str(),
-  ));
+  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, release_env).as_str()));
+  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, env).as_str()));
+  paths.push(PathBuf::from(format!("{}/{}.yaml", config_dir, region).as_str()));
   paths.push(PathBuf::from(
     format!("{}/{}-{}.yaml", config_dir, env, region).as_str(),
   ));
@@ -1356,19 +1273,19 @@ pub fn default_config_paths(
 
 #[cfg(test)]
 mod tests {
+  use std::collections::HashMap;
   use std::env;
+  use std::fs::File;
   use std::io::Write;
   use std::path::PathBuf;
 
-  use ecies_25519::EciesX25519;
-  use maplit::hashmap;
+  use log::info;
   use serde::Deserialize;
   use serial_test::serial;
-  use tempfile::NamedTempFile;
 
   use crate::C5Store;
   use crate::error::ConfigError;
-  use crate::secrets::{Base64SecretDecryptor, EciesX25519SecretDecryptor, SecretKeyStore};
+  use crate::secrets::{Base64SecretDecryptor, SecretKeyStore};
   use crate::value::C5DataValue;
   use crate::{C5StoreMgr, C5StoreOptions, SecretOptions, create_c5store, default_config_paths};
 
@@ -1395,9 +1312,30 @@ mod tests {
   }
 
   fn _create_c5store_test() -> (impl C5Store, C5StoreMgr) {
-    let config_file_paths =
-      default_config_paths("configs/test/config", "development", "local", "private");
+    init_logger();
+    let config_file_paths = default_config_paths("configs/test/config", "development", "local", "private");
     create_c5store(config_file_paths, None).expect("Test store creation failed")
+  }
+
+  use std::sync::Once;
+
+  static INIT: Once = Once::new();
+
+  /// Initializes the logger for tests. This function is safe to call multiple times,
+  /// but it will only initialize the logger on the first call.
+  fn init_logger() {
+    // The `call_once` method ensures that the closure is executed at most once,
+    // even if `init_logger` is called from multiple test threads.
+    INIT.call_once(|| {
+      env_logger::builder()
+        // .is_test(true) formats the output for tests and directs it to stderr
+        .is_test(true)
+        .filter_level(log::LevelFilter::Trace)
+        // .try_init() returns an error if the logger is already initialized,
+        // which `Once` should prevent. .ok() silently ignores the error.
+        .try_init()
+        .ok();
+    });
   }
 
   #[test]
@@ -1428,10 +1366,7 @@ mod tests {
   fn test_config_contains_example_test_and() {
     let (c5store, _c5store_mgr) = _create_c5store_test();
 
-    assert_eq!(
-      c5store.get("example.test.and").unwrap(),
-      C5DataValue::UInteger(1)
-    );
+    assert_eq!(c5store.get("example.test.and").unwrap(), C5DataValue::UInteger(1));
     assert_eq!(c5store.get_into::<u64>("example.test.and").unwrap(), 1u64);
   }
 
@@ -1469,8 +1404,7 @@ mod tests {
     }
 
     // Use an empty config file path list, relying only on env vars
-    let (c5store, _c5store_mgr) =
-      create_c5store(vec![], None).expect("Store creation from env failed");
+    let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Store creation from env failed");
 
     let db_conf_res = c5store.get_into_struct::<DbConfig>("flatdb"); // Use lowercase prefix
 
@@ -1650,8 +1584,8 @@ mod tests {
       ..Default::default()
     };
 
-    let (c5store, _c5store_mgr) = create_c5store(config_file_paths, Some(config_opt))
-      .expect("Secrets test store creation failed");
+    let (c5store, _c5store_mgr) =
+      create_c5store(config_file_paths, Some(config_opt)).expect("Secrets test store creation failed");
 
     assert_eq!(
       c5store.get("a_secret").unwrap(),
@@ -1688,8 +1622,8 @@ mod tests {
       ..Default::default()
     };
 
-    let (c5store, _c5store_mgr) = create_c5store(config_file_paths, Some(config_opt))
-      .expect("Bad secrets test store creation failed");
+    let (c5store, _c5store_mgr) =
+      create_c5store(config_file_paths, Some(config_opt)).expect("Bad secrets test store creation failed");
 
     assert_eq!(c5store.get("bad_secret"), Some(C5DataValue::Null));
   }
@@ -1699,7 +1633,8 @@ mod tests {
   #[cfg(feature = "secrets")]
   fn test_decryption_pipeline_populates_store_correctly() {
     // --- STAGE 1: Test that the full file->decrypt->store pipeline works ---
-    println!("\n--- TEST: Verifying decryption pipeline populates the store ---");
+
+    info!("\n--- TEST: Verifying decryption pipeline populates the store ---");
 
     // 1. Configure the store with the real decryptor
     let mut options = C5StoreOptions::default();
@@ -1710,11 +1645,10 @@ mod tests {
 
     // 2. Load the store from the correctly formatted test file
     let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
-    let (c5store, _mgr) =
-      create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
 
     // 3. Assert the final state of the store after decryption
-    println!("\n--- Asserting final store state ---");
+    info!("\n--- Asserting final store state ---");
 
     // Assert plaintext values were loaded
     assert_eq!(
@@ -1743,7 +1677,7 @@ mod tests {
     // Assert that the ORIGINAL ENCRYPTED VALUES ARE GONE
     assert!(!c5store.exists("secrets.api_key.c5encval"));
 
-    println!("✅ Stage 1 Passed: Store is populated correctly from decrypted secrets.");
+    info!("✅ Stage 1 Passed: Store is populated correctly from decrypted secrets.");
   }
 
   #[test]
@@ -1780,8 +1714,7 @@ mod tests {
 
     // --- 3. Load the Store from our correctly formatted test file ---
     let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
-    let (c5store, _mgr) =
-      create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
 
     // --- 4. Perform Deserialization and Assertions ---
     let config = c5store
@@ -1850,8 +1783,7 @@ my_bad_utf8_secret:
     }));
 
     // --- 3. Create the Store ---
-    let (c5store, _mgr) =
-      create_c5store(vec![config_path], Some(options)).expect("Store creation for test failed");
+    let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation for test failed");
 
     // --- 4. Test the Success Case (Valid UTF-8) ---
     let result = c5store.get_into::<String>("my_secret_string");
@@ -1997,8 +1929,7 @@ services:
     }));
 
     // --- 4. Create the Store ---
-    let (c5store, _mgr) =
-      create_c5store(config_paths, Some(options)).expect("Store creation failed");
+    let (c5store, _mgr) = create_c5store(config_paths, Some(options)).expect("Store creation failed");
 
     // --- 5. Perform Deserialization and Assertions ---
     let result = c5store.get_into_struct::<ServicesConfig>("services");
@@ -2026,5 +1957,119 @@ services:
 
     // Assert that the final struct matches the expected state.
     assert_eq!(config, expected_config);
+  }
+
+  // Add these to your `use` statements at the top of the test module
+  use crate::providers::C5FileValueProvider;
+  use tempfile::{NamedTempFile, tempdir};
+
+  // The struct definitions from step 1 go here...
+  #[derive(Deserialize, Debug, PartialEq)]
+  #[serde(rename_all = "camelCase")]
+  struct CommodityWeights {
+    #[serde(flatten)]
+    weights: HashMap<u32, u32>,
+  }
+
+  #[derive(Deserialize, Debug, PartialEq)]
+  #[serde(rename_all = "camelCase")]
+  struct Sector {
+    id: u32,
+    commodity_weights: CommodityWeights,
+  }
+
+  #[derive(Deserialize, Debug, PartialEq)]
+  struct RegionData {
+    region: u32,
+    sectors: Vec<Sector>,
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_into_struct_from_file_provider_with_root_array() {
+    init_logger();
+
+    // --- 1. Create a controlled temporary directory for all test files ---
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let base_path = temp_dir.path();
+
+    // --- 2. Prepare the data file inside the temp directory ---
+    let data_yaml_content = r#"
+- region: 2198
+  sectors: 
+  - id: 1
+    commodityWeights:
+      120204: 225
+      120235: 665
+- region: 2199
+  sectors:
+  - id: 2
+    commodityWeights:
+      120877: 75
+"#;
+    let data_file_path = base_path.join("data_to_load.yaml");
+    let mut data_file = File::create(&data_file_path).unwrap();
+    write!(data_file, "{}", data_yaml_content).unwrap();
+
+    // --- 3. Prepare the main config file, using a RELATIVE path ---
+    // The provider will combine its base_path with this relative path.
+    let main_config_content = r#"
+market:
+  regions:
+    .provider: "resources"
+    path: "data_to_load.yaml"  # <-- Use the simple relative path
+    format: "yaml"
+"#;
+    let main_config_path = base_path.join("main_config.yaml");
+    let mut main_config_file = File::create(&main_config_path).unwrap();
+    write!(main_config_file, "{}", main_config_content).unwrap();
+
+    // The files are flushed and closed when `data_file` and `main_config_file` go out of scope here.
+    // This is more reliable than relying on an active handle.
+
+    // --- 4. Initialize C5Store from the main config file ---
+    let (c5store, mut c5store_mgr) = create_c5store(
+      vec![main_config_path], // Load from the main config
+      None,
+    )
+    .expect("Test store creation failed");
+
+    // Register the C5FileValueProvider. The base path doesn't matter here since
+    // we provided an absolute path in the config.
+    c5store_mgr.set_value_provider(
+      "resources",
+      C5FileValueProvider::default(base_path.to_str().unwrap()), // Base path is our temp dir
+      0,
+    );
+
+    // --- 4. Perform Deserialization and Assertions ---
+    // The key is "market.regions", which is where the provider placed the array.
+    // The target type is Vec<RegionData> because the root of the data file is an array.
+    let result = c5store.get_into_struct::<Vec<RegionData>>("market.regions");
+
+    // Assert that the operation was successful
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize struct from file provider: {:?}",
+      result.err()
+    );
+
+    let regions = result.unwrap();
+
+    // Assert the content is correct
+    assert_eq!(regions.len(), 2, "Should have loaded two regions from the array");
+
+    // Check the first region
+    assert_eq!(regions[0].region, 2198);
+    assert_eq!(regions[0].sectors.len(), 1);
+    assert_eq!(regions[0].sectors[0].id, 1);
+    assert_eq!(
+      regions[0].sectors[0].commodity_weights.weights.get(&120235),
+      Some(&665)
+    );
+
+    // Check the second region
+    assert_eq!(regions[1].region, 2199);
+    assert_eq!(regions[1].sectors[0].commodity_weights.weights.get(&120877), Some(&75));
   }
 }

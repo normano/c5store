@@ -3,13 +3,13 @@ use std::fs;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
-use crate::{HydrateContext, SetDataFn};
-use crate::serialization::{deserialize_json, deserialize_yaml};
+use crate::serialization::{SerializationError, deserialize_json, deserialize_yaml};
 use crate::value::C5DataValue;
+use crate::{HydrateContext, SetDataFn};
 
-pub (in crate) const CONFIG_KEY_KEYNAME: &str = ".key";
-pub (in crate) const CONFIG_KEY_KEYPATH: &str = ".keyPath";
-pub (in crate) const CONFIG_KEY_PROVIDER: &str = ".provider";
+pub(crate) const CONFIG_KEY_KEYNAME: &str = ".key";
+pub(crate) const CONFIG_KEY_KEYPATH: &str = ".keyPath";
+pub(crate) const CONFIG_KEY_PROVIDER: &str = ".provider";
 
 pub enum C5RawValue {
   Bytes(Vec<u8>),
@@ -17,10 +17,9 @@ pub enum C5RawValue {
 }
 
 pub type C5Serializer = dyn Fn(C5DataValue) -> C5RawValue + Send + Sync;
-pub type C5ValueDeserializer = dyn Fn(C5RawValue) -> C5DataValue + Send + Sync;
+pub type C5ValueDeserializer = dyn Fn(C5RawValue) -> Result<C5DataValue, SerializationError> + Send + Sync;
 
 pub trait C5ValueProvider: Send + Sync {
-
   fn register(&mut self, data: &C5DataValue);
 
   fn unregister(&mut self, key: &str);
@@ -35,11 +34,7 @@ pub struct C5ValueProviderSchema {
 }
 
 impl C5ValueProviderSchema {
-
-  pub fn from_map(
-    map: &HashMap<String, C5DataValue>
-  ) -> Result<C5ValueProviderSchema, ()> {
-
+  pub fn from_map(map: &HashMap<String, C5DataValue>) -> Result<C5ValueProviderSchema, ()> {
     let value_provider: String;
     let value_key_path: String;
     let value_key: String;
@@ -47,21 +42,18 @@ impl C5ValueProviderSchema {
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_PROVIDER).unwrap() {
       value_provider = vpvalue.clone();
     } else {
-
       return Err(());
     }
 
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_KEYPATH).unwrap() {
       value_key_path = vpvalue.clone();
     } else {
-
       return Err(());
     }
 
     if let C5DataValue::String(vpvalue) = map.get(CONFIG_KEY_KEYNAME).unwrap() {
       value_key = vpvalue.clone()
     } else {
-
       return Err(());
     }
 
@@ -81,11 +73,7 @@ pub struct C5FileValueProviderSchema {
 }
 
 impl C5FileValueProviderSchema {
-
-  pub fn new_raw_utf8(
-    value_schema: C5ValueProviderSchema,
-    path: &str,
-  ) -> C5FileValueProviderSchema {
+  pub fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema {
     return C5FileValueProviderSchema {
       value_schema,
       path: path.to_string(),
@@ -102,18 +90,15 @@ pub struct C5FileValueProvider {
 }
 
 impl C5FileValueProvider {
-
   pub fn new(base_path: &str) -> C5FileValueProvider {
-
     return C5FileValueProvider {
       _base_dir_path: base_path.to_string(),
       _key_data_map: HashMap::new(),
       _deserializer: HashMap::new(),
-    }
+    };
   }
 
   pub fn default(base_path: &str) -> C5FileValueProvider {
-
     let mut provider = C5FileValueProvider::new(base_path);
 
     provider.register_deserializer("json", deserialize_json);
@@ -123,19 +108,18 @@ impl C5FileValueProvider {
   }
 
   fn register_deserializer<Deserializer>(&mut self, format_name: &str, deserializer: Deserializer)
-  where Deserializer: 'static + Fn(C5RawValue) -> C5DataValue + Send + Sync {
-
-    self._deserializer.insert(
-      format_name.to_string(),
-      Box::from(deserializer),
-    );
+  where
+    Deserializer:
+      'static + Fn(C5RawValue) -> Result<C5DataValue, crate::serialization::SerializationError> + Send + Sync,
+  {
+    self
+      ._deserializer
+      .insert(format_name.to_string(), Box::from(deserializer));
   }
 }
 
 impl C5ValueProvider for C5FileValueProvider {
-
   fn register(&mut self, data: &C5DataValue) {
-
     match data {
       C5DataValue::Map(map) => {
         let value_schema_result = C5ValueProviderSchema::from_map(&map);
@@ -179,31 +163,27 @@ impl C5ValueProvider for C5FileValueProvider {
           format,
         };
 
-        self._key_data_map.insert(vp_data.value_schema.value_key_path.clone(), vp_data);
+        self
+          ._key_data_map
+          .insert(vp_data.value_schema.value_key_path.clone(), vp_data);
       }
       _ => (),
     }
   }
 
   fn unregister(&mut self, key: &str) {
-
     self._key_data_map.remove(key);
   }
 
-  fn hydrate(
-    &self,
-    set_data_fn: &SetDataFn,
-    _force: bool,
-    context: &HydrateContext
-  ) {
-
+  fn hydrate(&self, set_data_fn: &SetDataFn, _force: bool, context: &HydrateContext) {
     for (key_path, vp_schema) in self._key_data_map.iter() {
-
       let mut file_path = PathBuf::new();
       file_path.push(Path::new(&*vp_schema.path));
 
       if !file_path.is_absolute() {
-        file_path = PathBuf::from_iter(&[&*self._base_dir_path, &*vp_schema.path]).canonicalize().unwrap();
+        file_path = PathBuf::from_iter(&[&*self._base_dir_path, &*vp_schema.path])
+          .canonicalize()
+          .unwrap();
       }
 
       if !file_path.exists() {
@@ -211,25 +191,41 @@ impl C5ValueProvider for C5FileValueProvider {
         return;
       }
 
-      let file_bytes = fs::read(file_path).unwrap();
+      let file_bytes = fs::read(&file_path).unwrap();
       let deserialized_value: C5DataValue;
 
       if &*vp_schema.format != "raw" {
         if !self._deserializer.contains_key(&*vp_schema.format) {
-
           context.logger.warn(
             format!(
               "{} cannot be deserialized since deserializer {} does not exist",
-              vp_schema.value_schema.value_key_path,
-              vp_schema.format
-            ).as_str()
+              vp_schema.value_schema.value_key_path, vp_schema.format
+            )
+            .as_str(),
           );
           continue;
         }
 
         let deserializer = self._deserializer.get(&vp_schema.format).unwrap();
         let raw_value = C5RawValue::Bytes(file_bytes);
-        deserialized_value = deserializer(raw_value);
+        match deserializer(raw_value) {
+          Ok(value) => {
+            deserialized_value = value;
+          }
+          Err(e) => {
+            context.logger.error(
+              &format!(
+                "Failed to deserialize file '{}' for key '{}': {}",
+                file_path.display(),
+                key_path,
+                e
+              ),
+              None,
+            );
+            // Skip this entry on failure
+            continue;
+          }
+        };
       } else {
         deserialized_value = C5DataValue::Bytes(file_bytes);
       }
@@ -241,8 +237,9 @@ impl C5ValueProvider for C5FileValueProvider {
 
 #[cfg(test)]
 mod tests {
-    use crate::{providers::C5FileValueProvider, value::C5DataValue, C5Store, C5StoreMgr, default_config_paths, create_c5store};
-
+  use crate::{
+    C5Store, C5StoreMgr, create_c5store, default_config_paths, providers::C5FileValueProvider, value::C5DataValue,
+  };
 
   #[test]
   fn test_config_contains_example_junk() {
@@ -251,8 +248,14 @@ mod tests {
     let file_path = "resources";
     c5store_mgr.set_value_provider("resources", C5FileValueProvider::default(file_path), 3);
 
-    assert_eq!(c5store.get("example.junk.some").unwrap(), C5DataValue::String(String::from("data")));
-    assert_eq!(c5store.get("example.junk.very").unwrap(), C5DataValue::String(String::from("doge")));
+    assert_eq!(
+      c5store.get("example.junk.some").unwrap(),
+      C5DataValue::String(String::from("data"))
+    );
+    assert_eq!(
+      c5store.get("example.junk.very").unwrap(),
+      C5DataValue::String(String::from("doge"))
+    );
   }
 
   fn _create_c5store() -> (impl C5Store, C5StoreMgr) {

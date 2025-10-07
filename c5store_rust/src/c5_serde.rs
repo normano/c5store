@@ -1,7 +1,7 @@
 pub(crate) mod de {
   // c5store_rust/src/c5_serde_de.rs
-  use serde::de::{self, Deserializer, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor};
   use serde::Deserialize;
+  use serde::de::{self, Deserializer, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor};
   use std::collections::HashMap; // Keep this, it's generally useful
 
   use crate::error::ConfigError;
@@ -407,10 +407,6 @@ pub(crate) mod de {
     where
       V: Visitor<'de>,
     {
-      println!(
-        "[c5_serde] >> Calling deserialize_seq on value {:?}",
-        self.value.type_name()
-      );
       match self.value {
         C5DataValue::Array(arr) => visitor.visit_seq(C5SeqAccess::new(arr)),
         C5DataValue::Bytes(b) => {
@@ -548,8 +544,8 @@ pub(crate) mod de {
       // Serde's IgnoredAny handles this.
       let _ = self.deserialize_any(de::IgnoredAny);
       Ok(visitor.visit_unit()?) // Ensure the unit visit result is propagated if it matters.
-                                // The error from deserialize_any would be our ConfigError, which is fine.
-                                // But visit_unit is simpler if we just want to signal "ignored".
+      // The error from deserialize_any would be our ConfigError, which is fine.
+      // But visit_unit is simpler if we just want to signal "ignored".
     }
   }
 
@@ -582,11 +578,35 @@ pub(crate) mod de {
     {
       match self.iter.next() {
         Some((key, value)) => {
-          // key is &'de String, value is &'de C5DataValue
           self.current_value = Some(value);
-          // Key is &'de String. Deserialize it as a borrowed string.
-          let key_de = key.as_str().into_deserializer();
-          seed.deserialize(key_de).map(Some)
+
+          // This is a robust parsing chain to handle various numeric and boolean keys.
+          // The order of attempts is important.
+
+          // 1. Try to parse as a signed integer first. This is the most common case
+          //    and correctly handles positive and negative numbers.
+          if let Ok(num_key) = key.parse::<i64>() {
+            seed.deserialize(num_key.into_deserializer()).map(Some)
+          }
+          // 2. If that fails, try an unsigned integer. This handles very large positive
+          //    numbers that might not fit in an i64.
+          else if let Ok(num_key) = key.parse::<u64>() {
+            seed.deserialize(num_key.into_deserializer()).map(Some)
+          }
+          // 3. If it's not an integer, try a float.
+          else if let Ok(float_key) = key.parse::<f64>() {
+            seed.deserialize(float_key.into_deserializer()).map(Some)
+          }
+          // 4. If it's not a number, check for boolean strings.
+          else if key == "true" {
+            seed.deserialize(true.into_deserializer()).map(Some)
+          } else if key == "false" {
+            seed.deserialize(false.into_deserializer()).map(Some)
+          }
+          // 5. If all else fails, treat it as a plain string.
+          else {
+            seed.deserialize(key.as_str().into_deserializer()).map(Some)
+          }
         }
         None => Ok(None),
       }
