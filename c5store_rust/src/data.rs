@@ -12,15 +12,15 @@ use std::iter::{FromIterator, IntoIterator, Iterator};
 /// Create a `HashsetMultiMap` from a list of key value pairs
 ///
 macro_rules! hashsetmultimap {
-    ($($key:expr => $value:expr),*)=>{
-        {
-            let mut _map = HashsetMultiMap::new();
-            $(
-                map.insert($key,$value);
-             )*
-            _map
-        }
+  ($($key:expr => $value:expr),*)=>{
+    {
+      let mut _map = HashsetMultiMap::new();
+      $(
+          map.insert($key,$value);
+        )*
+      _map
     }
+  }
 }
 
 #[derive(Clone)]
