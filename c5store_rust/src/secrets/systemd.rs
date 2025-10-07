@@ -61,8 +61,9 @@ pub(crate) fn load_systemd_credentials(
 
         // Read the key file.
         match fs::read(&credential_path) {
-          Ok(mut key_bytes) => { // Make key_bytes mutable
-            
+          Ok(mut key_bytes) => {
+            // Make key_bytes mutable
+
             // Process the key bytes based on the configured format
             match &cred_config.format {
               KeyFormat::Raw => {}
@@ -84,7 +85,7 @@ pub(crate) fn load_systemd_credentials(
               }
             }
 
-            println!(
+            log::info!(
               "[Secrets] Loaded systemd credential '{}' as key '{}' (format: {:?})",
               cred_config.credential_name, cred_config.ref_key_name, cred_config.format
             );

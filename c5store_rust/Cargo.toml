@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "0.4.8"
+version = "0.4.9"
 edition = "2024"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
@@ -45,6 +45,7 @@ reqwest = { version = "^0.12", optional = true }
 url = { version = "^2.3", optional = true  }
 
 [dev-dependencies]
+env_logger = "0.10"
 serde_test = "^1.0"
 serial_test = "^3.2.0"
 tempfile = "^3"

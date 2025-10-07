@@ -6,7 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2025-09-24
+## [0.4.9] - 2025-10-06
+
+### Fixed
+- Map key deserialization to support more data types
+
+## [0.4.8] - 2025-09-24
 
 ### Added
 - Updated skiplist dep to briong in rand-09
