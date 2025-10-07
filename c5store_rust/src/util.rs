@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::{providers::CONFIG_KEY_PROVIDER, value::C5DataValue, Case};
 
-pub(crate) fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> String {
+/// NOTE: For use by depending libraries
+pub fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> String {
   let interpolator: Box<dyn Fn(&str) -> Result<Option<String>, ()>> = Box::new(|var_name: &str| {
     let lower_var_name: String = var_name.to_lowercase();
 
