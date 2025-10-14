@@ -387,7 +387,7 @@ impl C5DataStore {
       };
 
       if !relative_path.is_empty() {
-        let path_parts: Vec<&str> = relative_path.split('.').collect();
+        let path_parts: Vec<String> = split_and_unescape_path(relative_path);
         child_paths.insert(path_parts, c5_value.clone());
       }
     }
@@ -469,13 +469,13 @@ fn _calc_hash_value(algo: &String, secret_key_name: &String, encoded_data: &Stri
 }
 
 /// The main entry point for building a nested C5DataValue from paths.
-fn build_nested_value(paths: BTreeMap<Vec<&str>, C5DataValue>) -> C5DataValue {
+fn build_nested_value(paths: BTreeMap<Vec<String>, C5DataValue>) -> C5DataValue {
   build_nested_value_recursive(paths, false)
 }
 
 /// The recursive engine for building the nested C5DataValue.
 /// The `force_map` parameter is used to override the array detection heuristic.
-fn build_nested_value_recursive(paths: BTreeMap<Vec<&str>, C5DataValue>, force_map: bool) -> C5DataValue {
+fn build_nested_value_recursive(paths: BTreeMap<Vec<String>, C5DataValue>, force_map: bool) -> C5DataValue {
   // Base case: If there's one entry and its path is empty, it's a terminal value.
   if paths.len() == 1 {
     if let Some((path, value)) = paths.first_key_value() {
@@ -486,16 +486,16 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<&str>, C5DataValue>, force_m
   }
 
   // Group paths by their first segment (e.g., "servers", "loadbalancer").
-  let mut groups: BTreeMap<&str, BTreeMap<Vec<&str>, C5DataValue>> = BTreeMap::new();
+  let mut groups: BTreeMap<String, BTreeMap<Vec<String>, C5DataValue>> = BTreeMap::new();
   for (path, value) in paths {
     if !path.is_empty() {
-      let group_key = path[0];
+      let group_key = path[0].clone();
       let remaining_path = path[1..].to_vec();
       groups.entry(group_key).or_default().insert(remaining_path, value);
     }
   }
 
-  let child_keys: BTreeSet<&str> = groups.keys().cloned().collect();
+  let child_keys: BTreeSet<String> = groups.keys().cloned().collect();
 
   // The key decision logic: Use the `force_map` override first, then apply array heuristic.
   if !force_map && is_array_heuristic(&child_keys) {
@@ -515,7 +515,7 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<&str>, C5DataValue>, force_m
     for (key, sub_paths) in groups {
       // Check if this key signals that its children must be a map.
       let force_map_for_next_level = key.ends_with("#map");
-      let final_key = key.strip_suffix("#map").unwrap_or(key);
+      let final_key = key.strip_suffix("#map").unwrap_or(&key);
       map.insert(
         final_key.to_string(),
         build_nested_value_recursive(sub_paths, force_map_for_next_level),
@@ -526,7 +526,7 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<&str>, C5DataValue>, force_m
 }
 
 /// Implements the strict array detection rule.
-fn is_array_heuristic(keys: &BTreeSet<&str>) -> bool {
+fn is_array_heuristic(keys: &BTreeSet<String>) -> bool { 
   if keys.is_empty() {
     return false;
   }
@@ -546,4 +546,34 @@ fn is_array_heuristic(keys: &BTreeSet<&str>) -> bool {
   }
   // If we get through the whole loop, it's a perfect sequence.
   true
+}
+
+/// Splits a flattened path by unescaped dots and un-escapes each resulting segment.
+fn split_and_unescape_path(path: &str) -> Vec<String> {
+  let mut parts = Vec::new();
+  let mut current_part = String::new();
+  let mut chars = path.chars();
+  let mut is_escaped = false;
+
+  while let Some(c) = chars.next() {
+    if is_escaped {
+      // The previous char was '\', so this char is a literal.
+      current_part.push(c);
+      is_escaped = false;
+    } else if c == '\\' {
+      // This is an escape char, flag it for the next loop iteration.
+      is_escaped = true;
+    } else if c == '.' {
+      // This is a separator, push the completed part and reset.
+      parts.push(current_part);
+      current_part = String::new();
+    } else {
+      // A normal character.
+      current_part.push(c);
+    }
+  }
+
+  // Add the final part.
+  parts.push(current_part);
+  parts
 }

@@ -230,6 +230,7 @@ impl C5ValueProvider for C5FileValueProvider {
         deserialized_value = C5DataValue::Bytes(file_bytes);
       }
 
+      log::trace!("[PROVIDER] Hydrating key '{}' with C5DataValue: {:?}", key_path, &deserialized_value);
       HydrateContext::push_value_to_data_store(set_data_fn, key_path, deserialized_value);
     }
   }

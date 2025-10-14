@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.12] - 2025-10-13
+
+### Added
+- Support for escaping dots in keys so they are treated as one string
+
 ## [0.4.10] - 2025-10-06
 
 ### Added
