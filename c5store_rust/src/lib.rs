@@ -61,6 +61,10 @@ impl HydrateContext {
   pub fn push_value_to_data_store(set_data_fn: &SetDataFn, key: &str, value: C5DataValue) {
     match value {
       C5DataValue::Map(mut value) => {
+        log::trace!(
+          "[HYDRATE_CONTEXT] Detected a Map for key '{}'. Flattening it now...",
+          key
+        );
         let mut config_data = HashMap::new();
         build_flat_map(&mut value, &mut config_data, String::from(key));
 
@@ -68,11 +72,17 @@ impl HydrateContext {
           let config_entry_key = config_entry.0;
           let config_value = config_entry.1;
 
+          log::trace!("[HYDRATE_CONTEXT] Setting FLATTENED key: '{}'", &config_entry_key);
           set_data_fn(&config_entry_key, config_value);
         }
         return;
       }
-      _ => {}
+      _ => {
+        log::trace!(
+          "[HYDRATE_CONTEXT] Detected a non-Map type for key '{}'. Setting it directly.",
+          key
+        );
+      }
     }
     set_data_fn(key, value);
   }
@@ -260,7 +270,13 @@ impl C5Store for C5StoreRoot {
   where
     Val: DeserializeOwned,
   {
+    log::trace!("[GET_INTO_STRUCT] Attempting to deserialize for key: '{}'", key_path);
     if let Some(direct_c5_value) = self.get(key_path) {
+      log::trace!(
+        "[GET_INTO_STRUCT] Found a DIRECT value at key '{}': {:?}",
+        key_path,
+        &direct_c5_value
+      );
       // Attempt to deserialize this direct C5DataValue
       // We need to check if it's a Map or Array, as structs usually deserialize from these.
       // Primitive types might deserialize if the struct is a newtype struct.
@@ -301,6 +317,11 @@ impl C5Store for C5StoreRoot {
       }
     }
 
+    log::trace!(
+      "[GET_INTO_STRUCT] No direct value found at '{}'. Falling back to prefix fetch and reconstruction.",
+      key_path
+    );
+
     // --- Strategy 2: Fetch children using the key as a prefix and reconstruct a C5DataValue::Map or C5DataValue::Array ---
     // This handles flattened keys (env vars, flat files) or completes partial direct maps.
     match self._data_store.fetch_children_as_c5_value(key_path) {
@@ -312,6 +333,10 @@ impl C5Store for C5StoreRoot {
         Err(ConfigError::KeyNotFound(key_path.to_string()))
       }
       Ok(reconstructed_c5_value) => {
+        log::trace!(
+          "[GET_INTO_STRUCT] Reconstructed C5DataValue: {:?}",
+          &reconstructed_c5_value
+        );
         // Attempt to deserialize the C5DataValue reconstructed from children
         let deserializer = C5SerdeValueDeserializer::from_c5(&reconstructed_c5_value);
         Val::deserialize(deserializer).map_err(|e| {
@@ -1939,5 +1964,131 @@ recon:
     );
     expected_milestones.insert(10, vec!["milestone_become_a_millionaire".to_string()]);
     assert_eq!(config.milestone_contracts_by_tier, expected_milestones);
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_into_struct_from_provider_with_complex_nested_map() {
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct ListingData {
+      item_id: String,
+      quantity: u32,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct ListingItem {
+      #[serde(rename = "type")] // "type" is a keyword in Rust
+      type_name: String,
+      data: ListingData,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct Catalog {
+      listings: HashMap<String, Vec<ListingItem>>,
+    }
+
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct CatalogConfig {
+      catalogs: HashMap<String, Catalog>,
+    }
+
+    init_logger();
+
+    // --- 1. Create a controlled temporary directory for all test files ---
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let base_path = temp_dir.path();
+
+    // --- 2. Prepare the data file with the requested structure but new values ---
+    // This file contains the actual data to be loaded by the provider.
+    let product_data_content = r#"
+catalogs:
+  "general_goods":
+    listings:
+      "dev.c5store.test_bundle.starter_pack":
+        - type: "bundle"
+          data:
+            itemId: "starter_pack_main"
+            quantity: 5
+      "dev.c5store.currency.100_gems":
+        - type: "currency"
+          data:
+            itemId: "gems"
+            quantity: 100
+"#;
+    let data_file_path = base_path.join("product_data.yaml");
+    let mut data_file = File::create(&data_file_path).unwrap();
+    write!(data_file, "{}", product_data_content).unwrap();
+
+    // --- 3. Prepare the main config file to set up the provider ---
+    // This tells the store where to place the data loaded by the provider.
+    let main_config_content = r#"
+game_content:
+  .provider: "catalog_resources"
+  path: "product_data.yaml"
+  format: "yaml"
+"#;
+    let main_config_path = base_path.join("main_config.yaml");
+    let mut main_config_file = File::create(&main_config_path).unwrap();
+    write!(main_config_file, "{}", main_config_content).unwrap();
+
+    // --- 4. Initialize C5Store and the Provider ---
+    let (c5store, mut c5store_mgr) = create_c5store(
+      vec![main_config_path], // Load from the main config
+      None,
+    )
+    .expect("Test store creation failed");
+
+    // Register the provider, using the temp directory as its base path.
+    // The name "catalog_resources" must match the `.provider` value in the YAML.
+    c5store_mgr.set_value_provider(
+      "catalog_resources",
+      C5FileValueProvider::default(base_path.to_str().unwrap()),
+      0, // No recurring refresh
+    );
+
+    // --- 5. Perform Deserialization and Assertions ---
+    // The key is "game_content", which is where the provider placed the data.
+    let result = c5store.get_into_struct::<CatalogConfig>("game_content");
+
+    assert!(
+      result.is_ok(),
+      "Failed to deserialize struct from file provider: {:?}",
+      result.err()
+    );
+
+    let config = result.unwrap();
+
+    // Assert that the top-level map and the "general_goods" catalog were loaded.
+    assert_eq!(config.catalogs.len(), 1, "Should have loaded one catalog category");
+    let general_goods = config
+      .catalogs
+      .get("general_goods")
+      .expect("`general_goods` catalog should exist");
+
+    // Assert that the listings within the catalog were loaded.
+    assert_eq!(general_goods.listings.len(), 2, "Should have two listings");
+
+    // Assert the contents of the "starter_pack"
+    let starter_pack = general_goods
+      .listings
+      .get("dev.c5store.test_bundle.starter_pack")
+      .expect("Starter pack should exist");
+    assert_eq!(starter_pack.len(), 1);
+    let starter_pack_item = &starter_pack[0];
+    assert_eq!(starter_pack_item.type_name, "bundle");
+    assert_eq!(starter_pack_item.data.item_id, "starter_pack_main");
+    assert_eq!(starter_pack_item.data.quantity, 5);
+
+    // Assert the contents of the "currency" listing
+    let currency = general_goods
+      .listings
+      .get("dev.c5store.currency.100_gems")
+      .expect("Currency pack should exist");
+    assert_eq!(currency.len(), 1);
+    let currency_item = &currency[0];
+    assert_eq!(currency_item.type_name, "currency");
+    assert_eq!(currency_item.data.item_id, "gems");
+    assert_eq!(currency_item.data.quantity, 100);
   }
 }

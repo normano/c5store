@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{providers::CONFIG_KEY_PROVIDER, value::C5DataValue, Case};
+use crate::{Case, providers::CONFIG_KEY_PROVIDER, value::C5DataValue};
 
 /// NOTE: For use by depending libraries
 pub fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> String {
@@ -26,12 +26,13 @@ fn build_flat_map_recursive(
   current_path: &str,                              // Use &str for efficiency
 ) {
   for (key, value) in source_map.iter() {
+    let escaped_key = escape_key_segment(key);
     let new_keypath = if current_path.is_empty() {
-      key.clone()
+      escaped_key
     } else {
-      format!("{}.{}", current_path, key)
+      format!("{}.{}", current_path, escaped_key)
     };
-
+    
     match value {
       C5DataValue::Map(sub_map) => {
         // A map is a "leaf" if it's a directive for a provider or a secret.
@@ -91,4 +92,10 @@ pub(crate) fn convert_case(s: &str, case: Case) -> String {
       result
     }
   }
+}
+
+/// Escapes literal dots and backslashes in a key segment for safe flattening.
+fn escape_key_segment(key: &str) -> String {
+  // Order is important: escape backslashes first, then dots.
+  key.replace('\\', "\\\\").replace('.', "\\.")
 }
