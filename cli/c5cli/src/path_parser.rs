@@ -1,5 +1,3 @@
-// c5cli/src/commands/path_parser.rs
-
 use c5_core::C5CoreError;
 use regex::Regex;
 
@@ -28,7 +26,7 @@ pub fn parse_path<'a>(path_str: &'a str) -> Result<Vec<PathSegment<'a>>, C5CoreE
   // It uses named capture groups for clarity.
   let token_re = Regex::new(
     r#"(?x)
-        (?P<key>[a-zA-Z_][a-zA-Z0-9_-]*) # A key
+        (?P<key>[a-zA-Z0-9_][a-zA-Z0-9_-]*) # A key
         |
         (?P<index>\[[0-9]+\])               # An index like [123]
         |

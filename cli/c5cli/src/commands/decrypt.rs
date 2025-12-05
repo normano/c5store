@@ -1,29 +1,24 @@
 use atty;
 use c5_core::{
-  base64_string_to_bytes,
-  decrypt_data,
-  io_utils::write_bytes_to_file,
-  load_ecies_private_key,
-  parse_c5_secret_array,
-  yaml_utils::load_yaml_from_string,
-  C5CoreError,
-  CryptoAlgorithm as CoreCryptoAlgo,
+  C5CoreError, CryptoAlgorithm as CoreCryptoAlgo, base64_string_to_bytes, decrypt_data, io_utils::write_bytes_to_file,
+  load_ecies_private_key, parse_c5_secret_array, yaml_utils::load_yaml_from_string,
 };
 use clap::Args;
 use std::fs;
 use std::io::{self, Write as IoWrite}; // For writing to stdout
 use std::path::PathBuf; // For checking if stdout is a TTY
 
-use crate::{path_parser::{parse_path, PathSegment}, CliCryptoAlgorithm};
+use crate::{
+  CliCryptoAlgorithm,
+  path_parser::{PathSegment, parse_path},
+};
 
 #[derive(Args, Debug)]
-#[clap(
-    after_help = "EXAMPLES:\n\
+#[clap(after_help = "EXAMPLES:\n\
     # Decrypt a secret and print it to the console\n\
     c5cli decrypt prod.yaml app.api_key my_key.key.pem --to-stdout\n\n\
     # Decrypt a secret from an array and save it to a file, overwriting if it exists\n\
-    c5cli decrypt config.yaml 'users[name=\"admin\"].token' admin.key.pem decrypted_token.txt -y"
-)]
+    c5cli decrypt config.yaml 'users[name=\"admin\"].token' admin.key.pem decrypted_token.txt -y")]
 pub struct DecryptArgs {
   #[arg(value_name = "CONFIG_FILE_NAME")]
   pub config_file_name: String,
@@ -74,7 +69,7 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
       return Err(C5CoreError::IoWithPath {
         path: full_config_path.clone(),
         source: e,
-      })
+      });
     }
   };
   let yaml_doc_root = load_yaml_from_string(&yaml_str)?;
@@ -94,19 +89,35 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
     match segment {
       PathSegment::Key(key) => {
         current_node = match current_node.as_hash() {
-          Some(map) => map.get(&yaml_rust2::Yaml::String(key.to_string())).ok_or_else(|| {
-            C5CoreError::YamlNavigation(format!(
-              "Key '{}' not found (at path trace: {}).",
-              key,
-              current_path_trace()
-            ))
-          })?,
+          Some(map) => {
+            // Check for String key first ("1")
+            if let Some(val) = map.get(&yaml_rust2::Yaml::String(key.to_string())) {
+              val
+            }
+            // Fallback: Check for Integer key (1)
+            else if let Ok(int_key) = key.parse::<i64>() {
+              map.get(&yaml_rust2::Yaml::Integer(int_key)).ok_or_else(|| {
+                C5CoreError::YamlNavigation(format!(
+                  "Key '{}' (String or Integer) not found (at path trace: {}).",
+                  key,
+                  current_path_trace()
+                ))
+              })?
+            } else {
+              // Neither found
+              return Err(C5CoreError::YamlNavigation(format!(
+                "Key '{}' not found (at path trace: {}).",
+                key,
+                current_path_trace()
+              )));
+            }
+          }
           None => {
             return Err(C5CoreError::YamlNavigation(format!(
               "Expected a Map to access key '{}' (at path trace: {}), but found a different type.",
               key,
               current_path_trace()
-            )))
+            )));
           }
         };
       }
@@ -124,7 +135,7 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
               "Expected an Array for index access [{}] (at path trace: {}), but found a different type.",
               index,
               current_path_trace()
-            )))
+            )));
           }
         };
       }
@@ -214,7 +225,7 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
         return Err(C5CoreError::UnsupportedAlgorithm(format!(
           "Algorithm '{}' found in secret is not supported for decryption.",
           secret_parts.algo_str
-        )))
+        )));
       }
     },
   };
@@ -238,7 +249,7 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
       match String::from_utf8(decrypted_bytes.clone()) {
         Ok(s) => {
           print!("{}", s); // Print string without an extra newline from print!
-                           // print! itself doesn't add a newline.
+          // print! itself doesn't add a newline.
         }
         Err(_) => {
           // If UTF-8 decoding fails, it's likely binary or wrong encoding.

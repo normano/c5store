@@ -1,20 +1,20 @@
 use c5_core::{
-  base64_string_to_bytes, bytes_to_base64_string, decrypt_data, encrypt_data, format_c5_secret_array,
+  C5CoreError, CryptoAlgorithm as CoreCryptoAlgo, base64_string_to_bytes, bytes_to_base64_string, decrypt_data,
+  encrypt_data, format_c5_secret_array,
   io_utils::{read_file_to_bytes, write_string_to_file},
   load_ecies_private_key, load_ecies_public_key, parse_c5_secret_array,
   yaml_utils::{dump_yaml_to_string, load_yaml_from_string},
-  C5CoreError, CryptoAlgorithm as CoreCryptoAlgo,
 };
 use clap::Args;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::fs;
 use std::path::{Path, PathBuf};
-use yaml_rust2::{yaml::Hash as YamlHash, Yaml};
+use yaml_rust2::{Yaml, yaml::Hash as YamlHash};
 
 use crate::{
-  path_parser::{parse_path, PathSegment},
   CliCryptoAlgorithm,
+  path_parser::{PathSegment, parse_path},
 };
 
 #[derive(Args, Debug)]
@@ -106,7 +106,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
         return Err(C5CoreError::IoWithPath {
           path: full_config_path.clone(),
           source: e,
-        })
+        });
       }
     }
   } else {
@@ -156,7 +156,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
             return Err(C5CoreError::YamlNavigation(format!(
               "Path segment '{}' in key path '{}' is not a map while looking for existing secret.",
               part_str, args.key_path
-            )))
+            )));
           }
         };
       }
@@ -174,7 +174,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
         return Err(C5CoreError::YamlNavigation(format!(
           "Key path '{}' did not resolve to a map for re-encryption.",
           args.key_path
-        )))
+        )));
       }
     };
 
@@ -186,7 +186,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
         return Err(C5CoreError::UnsupportedAlgorithm(format!(
           "Algorithm '{}' in existing secret not supported for decryption.",
           secret_parts.algo_str
-        )))
+        )));
       }
     };
     plaintext_bytes = decrypt_data(&old_ciphertext_bytes, &old_private_key, algo_for_decryption)?;
@@ -263,7 +263,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
               "Expected a Map to access key '{}' (at path trace: {}), but found a different type.",
               key,
               current_path_trace()
-            )))
+            )));
           }
         };
       }
@@ -281,7 +281,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
               "Expected an Array for index access [{}] (at path trace: {}), but found a different type.",
               index,
               current_path_trace()
-            )))
+            )));
           }
         };
       }
@@ -337,8 +337,22 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
         let mut secret_map = YamlHash::new();
         secret_map.insert(Yaml::String(args.secret_segment.clone()), secret_yaml_value_to_set);
 
-        // Unconditionally insert/replace the final key with our new secret map.
-        map.insert(Yaml::String(key.to_string()), Yaml::Hash(secret_map));
+        // LOGIC UPDATE: Check if we are updating an Integer key or inserting a String key
+        let key_str = Yaml::String(key.to_string());
+
+        if map.contains_key(&key_str) {
+          map.insert(key_str, Yaml::Hash(secret_map));
+        } else if let Ok(int_key) = key.parse::<i64>() {
+          let key_int = Yaml::Integer(int_key);
+          if map.contains_key(&key_int) {
+            map.insert(key_int, Yaml::Hash(secret_map));
+          } else {
+            // Default to String if neither exists
+            map.insert(key_str, Yaml::Hash(secret_map));
+          }
+        } else {
+          map.insert(key_str, Yaml::Hash(secret_map));
+        }
       } else {
         return Err(C5CoreError::YamlNavigation(format!(
           "Cannot insert final key '{}' because parent is not a Map.",

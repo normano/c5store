@@ -1,12 +1,12 @@
-// c5_core/src/yaml_utils.rs
 use crate::error::C5CoreError;
-use hashlink::lru_cache::Entry;
-use yaml_rust2::yaml::Hash as YamlHash; // Alias for the LinkedHashMap
-use yaml_rust2::{Yaml, YamlEmitter, YamlLoader}; // For loading/emitting
+use yaml_rust2::yaml::Hash as YamlHash;
+use yaml_rust2::{Yaml, YamlEmitter, YamlLoader};
+
+// --- Load / Dump Utilities ---
 
 pub fn load_yaml_from_string(yaml_str: &str) -> Result<Yaml, C5CoreError> {
   let docs = YamlLoader::load_from_str(yaml_str)
-    .map_err(|e| C5CoreError::YamlDeserialize(format!("YAML loading failed: {:?}", e)))?; // Adjust error mapping
+    .map_err(|e| C5CoreError::YamlDeserialize(format!("YAML loading failed: {:?}", e)))?;
   if docs.is_empty() {
     Ok(Yaml::Hash(YamlHash::new())) // Return empty map for empty input
   } else {
@@ -19,98 +19,196 @@ pub fn dump_yaml_to_string(yaml_doc: &Yaml) -> Result<String, C5CoreError> {
   let mut emitter = YamlEmitter::new(&mut out_str);
   emitter
     .dump(yaml_doc)
-    .map_err(|e| C5CoreError::YamlSerialize(format!("YAML emitting failed: {:?}", e)))?; // Adjust error mapping
+    .map_err(|e| C5CoreError::YamlSerialize(format!("YAML emitting failed: {:?}", e)))?;
   Ok(out_str)
 }
+
+// --- Path Parsing Logic ---
+
+/// Splits a path string by '.', respecting backslash escaping.
+/// E.g., "a.b\.c.d" -> ["a", "b.c", "d"]
+fn split_and_unescape_path(path: &str) -> Vec<String> {
+  let mut parts = Vec::new();
+  let mut current = String::new();
+  let mut is_escaped = false;
+
+  for c in path.chars() {
+    if is_escaped {
+      current.push(c);
+      is_escaped = false;
+    } else if c == '\\' {
+      is_escaped = true;
+    } else if c == '.' {
+      parts.push(current);
+      current = String::new();
+    } else {
+      current.push(c);
+    }
+  }
+  parts.push(current);
+  parts
+}
+
+// --- Get Logic ---
 
 pub fn get_yaml_value_at_path<'a>(root: &'a Yaml, path_str: &str) -> Option<&'a Yaml> {
   if path_str.is_empty() {
     return Some(root);
   }
-  let parts: Vec<&str> = path_str.split('.').collect();
+
+  let parts = split_and_unescape_path(path_str);
   let mut current = root;
+
   for part_str in parts {
     if part_str.is_empty() {
-      return None;
+      return None; // Invalid empty segment "a..b"
     }
+
     match current {
       Yaml::Hash(map) => {
-        let key_yaml = Yaml::String(part_str.to_string());
+        let key_yaml = Yaml::String(part_str);
         match map.get(&key_yaml) {
           Some(val) => current = val,
           None => return None,
         }
       }
-      _ => return None, // Not a hash, cannot go deeper
+      Yaml::Array(arr) => {
+        // Try to parse the segment as a usize index
+        if let Ok(index) = part_str.parse::<usize>() {
+          if index < arr.len() {
+            current = &arr[index];
+          } else {
+            return None; // Index out of bounds
+          }
+        } else {
+          return None; // Cannot use non-integer key on Array
+        }
+      }
+      _ => return None, // Scalar or Null cannot be traversed
     }
   }
   Some(current)
 }
 
+// --- Set Logic ---
+
 // Helper to get type name as string for Yaml
-// (You might need to add this or use a similar utility if Yaml doesn't have .type_name())
 fn yaml_type_name(y: &Yaml) -> &'static str {
   match y {
-      Yaml::String(_) => "String",
-      Yaml::Integer(_) => "Integer",
-      Yaml::Real(_) => "Real", // yaml-rust2 uses Real for f64
-      Yaml::Boolean(_) => "Boolean",
-      Yaml::Array(_) => "Array",
-      Yaml::Hash(_) => "Hash",
-      Yaml::Alias(_) => "Alias",
-      Yaml::Null => "Null",
-      Yaml::BadValue => "BadValue",
+    Yaml::String(_) => "String",
+    Yaml::Integer(_) => "Integer",
+    Yaml::Real(_) => "Real",
+    Yaml::Boolean(_) => "Boolean",
+    Yaml::Array(_) => "Array",
+    Yaml::Hash(_) => "Hash",
+    Yaml::Alias(_) => "Alias",
+    Yaml::Null => "Null",
+    Yaml::BadValue => "BadValue",
   }
 }
 
 pub fn set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yaml) -> Result<(), C5CoreError> {
   if path_str.is_empty() {
-      *root = value_to_set;
-      return Ok(());
-  }
-  let parts: Vec<&str> = path_str.split('.').collect();
-  if parts.iter().any(|p| p.is_empty()) {
-      return Err(C5CoreError::YamlNavigation(format!("Invalid empty segment in path: '{}'", path_str)));
+    *root = value_to_set;
+    return Ok(());
   }
 
-  let mut current_map_ref = root; // This will always point to the Yaml node that *is* the current map
+  let parts = split_and_unescape_path(path_str);
+  if parts.iter().any(|p| p.is_empty()) {
+    return Err(C5CoreError::YamlNavigation(format!(
+      "Invalid empty segment in path: '{}'",
+      path_str
+    )));
+  }
+
+  let mut current_node = root;
 
   for (i, part_str) in parts.iter().enumerate() {
-      // Ensure current_map_ref is a Hash. If Null, make it one. If other, error.
-      if !current_map_ref.is_hash() {
-          if current_map_ref.is_null() {
-              *current_map_ref = Yaml::Hash(YamlHash::new());
-          } else {
-              let err_path_context = if i > 0 { parts[..i].join(".") } else { "root".to_string() };
-              return Err(C5CoreError::YamlNavigation(format!(
-                  "Path '{}' requires segment '{}' to be a Map, but it's a {}.",
-                  path_str, err_path_context, yaml_type_name(current_map_ref)
-              )));
-          }
-      }
+    let is_last = i == parts.len() - 1;
 
-      // Now current_map_ref is guaranteed to be a Yaml::Hash
-      let map = match current_map_ref {
-          Yaml::Hash(m) => m,
-          _ => unreachable!(), // Should have been handled or errored above
-      };
-      
-      let key_yaml = Yaml::String(part_str.to_string());
+    // 1. Auto-Vivification Strategy: Map by Default.
+    // If we hit a Null, we ALWAYS turn it into a Hash, even if the key looks like "0".
+    // This prevents sparse arrays. The runtime (c5store) will decide later if
+    // a Map like { "0": "val", "1": "val" } should be treated as an Array.
+    if current_node.is_null() {
+      *current_node = Yaml::Hash(YamlHash::new());
+    }
 
-      if i == parts.len() - 1 { // Last part, set the value in the current map
+    // 2. Traversal / Modification
+    match current_node {
+      Yaml::Hash(map) => {
+        let key_yaml = Yaml::String(part_str.to_string());
+        if is_last {
           map.insert(key_yaml, value_to_set);
           return Ok(());
-      } else { // Intermediate part, get/create the next map and update current_map_ref
-          current_map_ref = map.entry(key_yaml).or_insert_with(|| Yaml::Hash(YamlHash::new()));
+        } else {
+          // Descend or create next Null slot
+          current_node = map.entry(key_yaml).or_insert(Yaml::Null);
+        }
       }
+      Yaml::Array(arr) => {
+        // Parse index
+        let idx = part_str.parse::<usize>().map_err(|_| {
+          C5CoreError::YamlNavigation(format!(
+            "Cannot navigate into Array with non-integer key '{}'. Path: {}",
+            part_str, path_str
+          ))
+        })?;
+
+        // Strict Bounds Checking
+        if idx > arr.len() {
+          return Err(C5CoreError::YamlNavigation(format!(
+            "Index {} out of bounds (len is {}). Sparse arrays are not supported. Path: {}",
+            idx,
+            arr.len(),
+            path_str
+          )));
+        }
+
+        if is_last {
+          if idx == arr.len() {
+            // Append
+            arr.push(value_to_set);
+          } else {
+            // Overwrite
+            arr[idx] = value_to_set;
+          }
+          return Ok(());
+        } else {
+          // Traversal
+          if idx == arr.len() {
+            // Cannot descend into a slot that doesn't exist yet
+            return Err(C5CoreError::YamlNavigation(format!(
+              "Cannot traverse into index {} because it does not exist yet. Path: {}",
+              idx, path_str
+            )));
+          }
+          current_node = &mut arr[idx];
+        }
+      }
+      _ => {
+        // Scalar conflict
+        let err_path_context = if i > 0 {
+          parts[..i].join(".")
+        } else {
+          "root".to_string()
+        };
+        return Err(C5CoreError::YamlNavigation(format!(
+          "Path '{}' requires segment '{}' to be a Container (Map/Array), but it's a {}.",
+          path_str,
+          err_path_context,
+          yaml_type_name(current_node)
+        )));
+      }
+    }
   }
-  unreachable!("Loop should have returned");
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use yaml_rust2::{yaml::Hash, Yaml}; // For constructing test Yaml values
+  use yaml_rust2::{yaml::Hash, Yaml};
 
   fn make_string(s: &str) -> Yaml {
     Yaml::String(s.to_string())
@@ -154,7 +252,7 @@ mod tests {
 
     Ok(())
   }
-  
+
   #[test]
   fn test_get_yaml_value_at_path() {
     let mut root_map = Hash::new();
@@ -266,6 +364,115 @@ mod tests {
       Err(C5CoreError::YamlNavigation(_))
     ));
 
+    Ok(())
+  }
+
+  #[test]
+  fn test_path_unescaping() {
+    // Basic
+    assert_eq!(split_and_unescape_path("a.b.c"), vec!["a", "b", "c"]);
+    // Escaped dot
+    assert_eq!(
+      split_and_unescape_path("google\\.com.apiKey"),
+      vec!["google.com", "apiKey"]
+    );
+    // Escaped backslash
+    assert_eq!(split_and_unescape_path("folder\\\\.file"), vec!["folder\\", "file"]);
+    // No separator
+    assert_eq!(split_and_unescape_path("simple"), vec!["simple"]);
+  }
+
+  #[test]
+  fn test_get_with_escaping_and_arrays() {
+    // Setup: { "sites": [ { "google.com": "true" } ] }
+    let mut inner_map = Hash::new();
+    inner_map.insert(make_string("google.com"), make_string("found_it"));
+
+    let mut root_map = Hash::new();
+    root_map.insert(make_string("sites"), Yaml::Array(vec![Yaml::Hash(inner_map)]));
+    let root = Yaml::Hash(root_map);
+
+    // Test escaped get
+    let val = get_yaml_value_at_path(&root, "sites.0.google\\.com");
+    assert_eq!(val, Some(&make_string("found_it")));
+
+    // Test array out of bounds
+    assert_eq!(get_yaml_value_at_path(&root, "sites.1"), None);
+
+    // Test bad type for array index
+    assert_eq!(get_yaml_value_at_path(&root, "sites.foo"), None);
+  }
+
+  #[test]
+  fn test_set_auto_vivification_map_by_default() -> Result<(), C5CoreError> {
+    let mut root = Yaml::Null;
+
+    // Setting "0" on Null should create a Hash, NOT an Array
+    set_yaml_value_at_path(&mut root, "items.0", make_string("val"))?;
+
+    // Verify items is a Hash
+    match root {
+      Yaml::Hash(m) => {
+        let items = m.get(&make_string("items")).unwrap();
+        match items {
+          Yaml::Hash(inner_m) => {
+            assert_eq!(inner_m.get(&make_string("0")), Some(&make_string("val")));
+          }
+          _ => panic!("Expected items to be a Hash"),
+        }
+      }
+      _ => panic!("Expected root to be a Hash"),
+    }
+    Ok(())
+  }
+
+  #[test]
+  fn test_set_array_logic() -> Result<(), C5CoreError> {
+    // Setup: items: ["a", "b"]
+    let mut root_map = Hash::new();
+    root_map.insert(
+      make_string("items"),
+      Yaml::Array(vec![make_string("a"), make_string("b")]),
+    );
+    let mut root = Yaml::Hash(root_map);
+
+    // 1. Overwrite existing index
+    set_yaml_value_at_path(&mut root, "items.0", make_string("updated_a"))?;
+
+    // 2. Append (idx == len)
+    set_yaml_value_at_path(&mut root, "items.2", make_string("c"))?;
+
+    // 3. Sparse Array Error (idx > len)
+    let err = set_yaml_value_at_path(&mut root, "items.5", make_string("e"));
+    assert!(matches!(err, Err(C5CoreError::YamlNavigation(_))));
+
+    // Verify final state: ["updated_a", "b", "c"]
+    if let Some(Yaml::Array(arr)) = get_yaml_value_at_path(&root, "items") {
+      assert_eq!(arr.len(), 3);
+      assert_eq!(arr[0], make_string("updated_a"));
+      assert_eq!(arr[1], make_string("b"));
+      assert_eq!(arr[2], make_string("c"));
+    } else {
+      panic!("items lost its array type");
+    }
+
+    Ok(())
+  }
+
+  #[test]
+  fn test_set_escaped_key() -> Result<(), C5CoreError> {
+    let mut root = Yaml::Hash(Hash::new());
+
+    // Should create key "my.key" not map "my" -> key "key"
+    set_yaml_value_at_path(&mut root, "my\\.key", make_string("val"))?;
+
+    match &root {
+      Yaml::Hash(m) => {
+        assert_eq!(m.get(&make_string("my.key")), Some(&make_string("val")));
+        assert_eq!(m.get(&make_string("my")), None);
+      }
+      _ => panic!("Root not hash"),
+    }
     Ok(())
   }
 }
