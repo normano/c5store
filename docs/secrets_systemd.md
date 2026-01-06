@@ -60,17 +60,17 @@ Copy the contents of `my_app.c5.key.pem` to the server. For example, use `scp` a
 
 ### 2.2. Store the Key with `systemd-creds`
 
-On the server, use the `systemd-creds` command to encrypt and store the private key. The name given here (e.g., `myapp.private.key`) is the **credential name**.
+On the server, use the `systemd-creds` command to encrypt and store the private key. The name given here (e.g., `myapp_creds`) is the **credential name**.
 
 ```bash
-# Paste the contents of myapp.private.key when prompted, then press Ctrl+D.
-# The credential name "myapp.private.key" will be used in the systemd service file.
-sudo systemd-creds encrypt --name=myapp.private.key myapp.private.key /etc/credstore.encrypted/myapp.private.key
+# Paste the contents of myapp.pem when prompted, then press Ctrl+D.
+# The credential name "myapp_creds" will be used in the systemd service file.
+sudo systemd-creds encrypt --with-key=tpm2 --name=myapp_creds myapp.pem /etc/credstore.encrypted/myapp.private_key
 
-sudo chmod 600 /etc/credstore.encrypted/myapp.private.key
+sudo chmod 400 /etc/credstore.encrypted/myapp.private_key
 
 # Securely remove the original PEM file if it was transferred
-shred -u myapp.private.key
+shred -u myapp.pem
 ```
 This command reads the key from standard input, encrypts it using a key unique to this machine (often TPM-backed), and saves it to the protected `credstore` directory. The plaintext private key no longer needs to be on the server.
 
@@ -95,7 +95,7 @@ DynamicUser=yes
 
 # This directive tells systemd to decrypt and provide the key.
 # The name MUST match the credential name from step 2.2.
-LoadCredentialEncrypted=myapp.private.key:/etc/credstore.encrypted/myapp.private.key
+LoadCredentialEncrypted=myapp_creds:/etc/credstore.encrypted/myapp.private_key
 
 ExecStart=/usr/bin/myapp-server
 
@@ -120,7 +120,7 @@ let mut options = C5StoreOptions::default();
 options.secret_opts.load_credentials_from_systemd = vec![
   SystemdCredential {
     // This MUST match the name in the LoadCredentialEncrypted directive.
-    credential_name: "myapp.private.key".to_string(),
+    credential_name: "myapp.private+key".to_string(),
     
     // This MUST match the key name in your YAML's .c5encval array.
     ref_key_name: "my_app".to_string(),
@@ -137,9 +137,9 @@ let (c5store, _mgr) = create_c5store(config_paths, Some(options))?;
 ## Runtime Process Summary
 
 1.  An admin runs `sudo systemctl start myapp.service`.
-2.  `systemd` finds `LoadCredentialEncrypted=myapp.private.key:...`.
-3.  It decrypts the file at `/etc/credstore.encrypted/myapp.private.key` using the machine's secret key.
-4.  It writes the **plaintext PEM content** to `/run/credentials/myapp.service/myapp.private.key`.
+2.  `systemd` finds `LoadCredentialEncrypted=myapp.private_key:...`.
+3.  It decrypts the file at `/etc/credstore.encrypted/myapp.private_key` using the machine's secret key.
+4.  It writes the **plaintext PEM content** to `/run/credentials/myapp.service/myapp.private_key`.
 5.  It starts your application.
 6.  Your app initializes `c5store` with the `SystemdCredential` option.
 7.  `c5store` reads the plaintext PEM from `/run/credentials/...`.
