@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- ConfigBootstrapper::run now errors with TargetIsDir when a target path is a directory, instead of skipping it as an existing file.
+
+### Removed
+- BootstrapError::GitUnsupportedHostForAutomaticUrl, which was never constructed.
+
 ## [0.4.12] - 2025-10-13
 
 ### Added

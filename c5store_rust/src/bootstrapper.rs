@@ -5,7 +5,6 @@ use thiserror::Error;
 use tokio::fs as tokio_fs;
 use url::Url;
 
-// --- Custom Error Type ---
 #[derive(Error, Debug)]
 pub enum BootstrapError {
   #[error("Filesystem operation failed for path: {path}")]
@@ -17,7 +16,7 @@ pub enum BootstrapError {
   #[error("Target path is a directory but a file was expected: {0}")]
   TargetIsDir(PathBuf),
   #[error("Local source file not found: {0}")]
-  LocalSourceNotFound(PathBuf), // Changed from warning to error
+  LocalSourceNotFound(PathBuf),
   #[error("HTTP request failed for URL: {url}")]
   Http {
     url: String,
@@ -52,14 +51,10 @@ pub enum BootstrapError {
   GitFilePathInvalid(PathBuf),
   #[error("Git file_path_in_repo must be relative: {0:?}")]
   GitFilePathNotRelative(PathBuf),
-  #[error("Cannot automatically format raw URL for {host} Git host. Use a direct HTTP source or a specific host type like GitHub/GitLab.")]
-  GitUnsupportedHostForAutomaticUrl { host: String },
 }
 
-// Define a custom Result type for convenience
 pub type Result<T, E = BootstrapError> = std::result::Result<T, E>;
 
-// --- Enums and Structs for Configuration ---
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitHost {
   GitHub,
@@ -154,14 +149,8 @@ impl ConfigBootstrapper {
     println!("INFO: [Bootstrapper] Starting configuration bootstrapping...");
 
     for item in &self.items {
-      if let Some(parent_dir) = item.target_path.parent() {
-        if !parent_dir.exists() {
-          fs::create_dir_all(parent_dir).map_err(|e| BootstrapError::Io {
-            path: parent_dir.to_path_buf(),
-            source: e,
-          })?;
-          println!("[INFO: Bootstrapper] Created directory: {:?}", parent_dir);
-        }
+      if item.target_path.is_dir() {
+        return Err(BootstrapError::TargetIsDir(item.target_path.clone()));
       }
 
       if item.target_path.exists() {
@@ -176,8 +165,14 @@ impl ConfigBootstrapper {
         item.target_path
       );
 
-      if item.target_path.is_dir() {
-        return Err(BootstrapError::TargetIsDir(item.target_path.clone()));
+      if let Some(parent_dir) = item.target_path.parent() {
+        if !parent_dir.exists() {
+          fs::create_dir_all(parent_dir).map_err(|e| BootstrapError::Io {
+            path: parent_dir.to_path_buf(),
+            source: e,
+          })?;
+          println!("[INFO: Bootstrapper] Created directory: {:?}", parent_dir);
+        }
       }
 
       match &item.source {
@@ -196,7 +191,6 @@ impl ConfigBootstrapper {
               full_src_path, item.target_path
             );
           } else {
-            // Now an error instead of a warning for library use
             return Err(BootstrapError::LocalSourceNotFound(full_src_path));
           }
         }
