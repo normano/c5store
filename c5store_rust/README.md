@@ -50,6 +50,6 @@ c5store = { version = "0.4", features = ["secrets_systemd"] }
 
 ## Status
 
-Version 0.4.12, Rust edition 2024. The public API is settled and in use; minor releases may still add to it. See [CHANGELOG.md](CHANGELOG.md) for the release history.
+Version 1.0.0, Rust edition 2024. The public API is stable and in use; it follows semantic versioning from this release on. See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 Licensed under the Mozilla Public License 2.0. Issues and pull requests are welcome on the project repository.

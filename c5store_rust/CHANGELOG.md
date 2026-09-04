@@ -4,7 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Rolling a release turns what has accumulated under `[Unreleased]` into a version. Insert a `## [x.y.z] - YYYY-MM-DD` heading directly below `[Unreleased]`, move the sections that have entries down under that heading, and leave the empty section headings behind. `[Unreleased]` therefore always stays at the top with its full set of sections, ready for the next change, and version headings run newest first with every released version keeping an entry.
+
+Between rolls, an entry goes under `[Unreleased]` in the section matching its change type: `Added` for new features, `Changed` for changes to existing behaviour, `Deprecated` for features about to go, `Removed` for features now gone, `Fixed` for bug fixes and `Security` for vulnerabilities. A section with no entries is left empty rather than deleted.
+
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.0.0] - 2026-09-04
 
 ### Changed
 - ConfigBootstrapper::run now errors with TargetIsDir when a target path is a directory, instead of skipping it as an existing file.
