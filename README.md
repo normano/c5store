@@ -1,7 +1,6 @@
 # C5Store
 
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
-<!-- Add other badges here if you have them -->
 
 **C5Store** (ConfigStore) is a library providing a **unified, traceable, and dynamic store for configuration and secrets** across multiple programming languages, with implementations currently available for [Rust](./c5store_rust) and [JavaScript](./c5store_js).
 
@@ -43,8 +42,3 @@ This approach allows developers to focus on using configuration rather than mana
     - Warning: API is not feature parity with rust currently
 
 Refer to the specific implementation directories for detailed documentation and usage examples.
-
-# Note
-
-*   A potential future addition could be a command-line interface (CLI) tool to help with encrypting secrets and managing configuration files.
-*   Additional built-in Value Providers for common sources (e.g., Consul, Vault, databases) may be added over time or contributed by the community.
