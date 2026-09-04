@@ -1,34 +1,22 @@
 pub(crate) mod de {
-  // c5store_rust/src/c5_serde_de.rs
   use serde::Deserialize;
   use serde::de::{self, Deserializer, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor};
-  use std::collections::HashMap; // Keep this, it's generally useful
+  use std::collections::HashMap;
 
   use crate::error::ConfigError;
   use crate::value::C5DataValue;
 
-  // Helper to convert our ConfigError into a serde::de::Error
-  // fn to_serde_error<E: std::fmt::Display>(e: E) -> ConfigError {
-  //   ConfigError::Message(e.to_string())
-  // }
-  // This helper might not be strictly necessary anymore if ConfigError directly implements serde::de::Error
 
-  // <<< MODIFIED struct definition and impl block signature >>>
   pub struct C5SerdeValueDeserializer<'de> {
-    // Changed 'a to 'de
     value: &'de C5DataValue,
   }
 
   impl<'de> C5SerdeValueDeserializer<'de> {
-    // Changed 'a to 'de
     pub fn from_c5(value: &'de C5DataValue) -> Self {
       C5SerdeValueDeserializer { value }
     }
   }
 
-  // Macro to implement deserialize_primitive for C5SerdeValueDeserializer
-  // The macro itself doesn't need to change regarding lifetimes here,
-  // as it inherits them from the impl block.
   macro_rules! deserialize_primitive_direct {
     // For bool, f32, f64 where C5DataValue variant maps directly
     ($method:ident, $visitor_method:ident, $c5_path:path, $expected_type_str:literal, $val_type:ty) => {
@@ -37,7 +25,7 @@ pub(crate) mod de {
         V: Visitor<'de>,
       {
         match self.value {
-          $c5_path(val) => visitor.$visitor_method(*val as $val_type), // as val_type for consistency, though often direct
+          $c5_path(val) => visitor.$visitor_method(*val as $val_type),
           _ => Err(ConfigError::TypeMismatch {
             key: String::from(""),
             expected_type: $expected_type_str,
@@ -188,7 +176,6 @@ pub(crate) mod de {
   }
 
   impl<'de> Deserializer<'de> for C5SerdeValueDeserializer<'de> {
-    // Changed 'a to 'de
     type Error = ConfigError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -201,8 +188,8 @@ pub(crate) mod de {
         C5DataValue::Integer(i) => visitor.visit_i64(*i),
         C5DataValue::UInteger(u) => visitor.visit_u64(*u),
         C5DataValue::Float(f) => visitor.visit_f64(*f),
-        C5DataValue::String(s) => visitor.visit_borrowed_str(s), // Use visit_borrowed_str for &str
-        C5DataValue::Bytes(b) => visitor.visit_borrowed_bytes(b), // Use visit_borrowed_bytes for &[u8]
+        C5DataValue::String(s) => visitor.visit_borrowed_str(s),
+        C5DataValue::Bytes(b) => visitor.visit_borrowed_bytes(b),
         C5DataValue::Array(_) => self.deserialize_seq(visitor),
         C5DataValue::Map(_) => self.deserialize_map(visitor),
       }
@@ -231,8 +218,7 @@ pub(crate) mod de {
             visitor.visit_bool(false)
           } else {
             Err(ConfigError::ConversionError {
-              // Using ConversionError might be more fitting here
-              key: "".to_string(), // Key context is limited here
+              key: "".to_string(),
               message: format!("String value '{}' could not be converted to boolean", s),
             })
           }
@@ -371,7 +357,7 @@ pub(crate) mod de {
     {
       match self.value {
         C5DataValue::Null => visitor.visit_none(),
-        _ => visitor.visit_some(self), // 'self' is C5SerdeValueDeserializer<'de>
+        _ => visitor.visit_some(self),
       }
     }
 
@@ -400,7 +386,7 @@ pub(crate) mod de {
     where
       V: Visitor<'de>,
     {
-      visitor.visit_newtype_struct(self) // 'self' is C5SerdeValueDeserializer<'de>
+      visitor.visit_newtype_struct(self)
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -410,7 +396,6 @@ pub(crate) mod de {
       match self.value {
         C5DataValue::Array(arr) => visitor.visit_seq(C5SeqAccess::new(arr)),
         C5DataValue::Bytes(b) => {
-          // Create a SeqAccess that deserializes each byte directly.
           struct BytesSeqAccess<'a> {
             iter: std::slice::Iter<'a, u8>,
           }
@@ -424,7 +409,6 @@ pub(crate) mod de {
             {
               match self.iter.next() {
                 Some(&byte) => {
-                  // Deserialize a single u8 directly.
                   seed.deserialize(byte.into_deserializer()).map(Some)
                 }
                 None => Ok(None),
@@ -460,10 +444,8 @@ pub(crate) mod de {
       V: Visitor<'de>,
     {
       match self.value {
-        // self.value is &'de C5DataValue
         C5DataValue::Map(map) => {
-          // map is &'de HashMap<String, C5DataValue>
-          visitor.visit_map(C5MapAccess::new(map)) // C5MapAccess needs 'de
+          visitor.visit_map(C5MapAccess::new(map))
         }
         _ => Err(ConfigError::TypeMismatch {
           key: String::from(""),
@@ -495,21 +477,14 @@ pub(crate) mod de {
       V: Visitor<'de>,
     {
       match self.value {
-        // self.value is &'de C5DataValue
         C5DataValue::String(s) => {
-          // s is &'de String
-          // To use into_deserializer for the variant name, we need an owned String
-          // or a type that directly implements IntoDeserializer.
-          // s.clone().into_deserializer() works if String implements IntoDeserializer.
-          // Alternatively, treat it as a string literal.
           visitor.visit_enum(s.as_str().into_deserializer())
         }
         C5DataValue::Map(map) if map.len() == 1 => {
-          // map is &'de HashMap
-          let (variant_name, variant_value) = map.iter().next().unwrap(); // variant_name is &'de String, variant_value is &'de C5DataValue
+          let (variant_name, variant_value) = map.iter().next().unwrap();
           visitor.visit_enum(C5EnumRefAccess {
-            variant: variant_name.as_str(), // Pass &'de str
-            value: variant_value,           // Pass &'de C5DataValue
+            variant: variant_name.as_str(),
+            value: variant_value,
           })
         }
         _ => Err(ConfigError::TypeMismatch {
@@ -524,8 +499,6 @@ pub(crate) mod de {
     where
       V: Visitor<'de>,
     {
-      // Identifiers are usually strings.
-      // If self.value is C5DataValue::String(s), then s is &'de String.
       match self.value {
         C5DataValue::String(s) => visitor.visit_borrowed_str(s.as_str()),
         _ => Err(ConfigError::TypeMismatch {
@@ -540,27 +513,18 @@ pub(crate) mod de {
     where
       V: Visitor<'de>,
     {
-      // Create a dummy visitor to consume the value if needed, or just proceed.
-      // Serde's IgnoredAny handles this.
       let _ = self.deserialize_any(de::IgnoredAny);
-      Ok(visitor.visit_unit()?) // Ensure the unit visit result is propagated if it matters.
-      // The error from deserialize_any would be our ConfigError, which is fine.
-      // But visit_unit is simpler if we just want to signal "ignored".
+      Ok(visitor.visit_unit()?)
     }
   }
 
-  // C5MapAccess, C5SeqAccess, and C5EnumRefAccess now also need to be generic over 'de
-  // and use it consistently.
 
   struct C5MapAccess<'de> {
-    // iter now yields &'de String and &'de C5DataValue
     iter: std::collections::hash_map::Iter<'de, String, C5DataValue>,
-    // current_value is now &'de C5DataValue
     current_value: Option<&'de C5DataValue>,
   }
 
   impl<'de> C5MapAccess<'de> {
-    // map is &'de HashMap<String, C5DataValue>
     fn new(map: &'de HashMap<String, C5DataValue>) -> Self {
       C5MapAccess {
         iter: map.iter(),
@@ -580,7 +544,6 @@ pub(crate) mod de {
         Some((key, value)) => {
           self.current_value = Some(value);
 
-          // This is a robust parsing chain to handle various numeric and boolean keys.
           // The order of attempts is important.
 
           // 1. Try to parse as a signed integer first. This is the most common case
@@ -617,7 +580,7 @@ pub(crate) mod de {
       V: de::DeserializeSeed<'de>,
     {
       match self.current_value.take() {
-        Some(value) => seed.deserialize(C5SerdeValueDeserializer::from_c5(value)), // value is &'de C5DataValue
+        Some(value) => seed.deserialize(C5SerdeValueDeserializer::from_c5(value)),
         None => Err(de::Error::custom(
           "value for map entry missing, next_value_seed called before next_key_seed",
         )),
@@ -626,11 +589,10 @@ pub(crate) mod de {
   }
 
   struct C5SeqAccess<'de> {
-    iter: std::slice::Iter<'de, C5DataValue>, // iter over &'de C5DataValue
+    iter: std::slice::Iter<'de, C5DataValue>,
   }
 
   impl<'de> C5SeqAccess<'de> {
-    // seq is &'de [C5DataValue]
     fn new(seq: &'de [C5DataValue]) -> Self {
       C5SeqAccess { iter: seq.iter() }
     }
@@ -644,7 +606,6 @@ pub(crate) mod de {
       T: de::DeserializeSeed<'de>,
     {
       match self.iter.next() {
-        // .next() gives &'de C5DataValue
         Some(value) => seed.deserialize(C5SerdeValueDeserializer::from_c5(value)).map(Some),
         None => Ok(None),
       }
@@ -658,7 +619,7 @@ pub(crate) mod de {
 
   impl<'de> EnumAccess<'de> for C5EnumRefAccess<'de> {
     type Error = ConfigError;
-    type Variant = Self; // Self is C5EnumRefAccess<'de>
+    type Variant = Self;
 
     fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
     where

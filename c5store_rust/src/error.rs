@@ -13,7 +13,7 @@ pub enum ConfigError {
   TypeMismatch {
     key: String,
     expected_type: &'static str,
-    found_type: &'static str, // Or String representation of C5DataValue type
+    found_type: &'static str,
   },
 
   #[error("Conversion error for key '{key}': {message}")]
@@ -67,7 +67,7 @@ pub enum ConfigError {
   #[error("Decryption failed for config path '{config_path}': {message}")]
   DecryptionError {
     config_path: String,
-    message: String, // Or source error from decryptor
+    message: String,
   },
   #[cfg(feature = "secrets")]
   #[error("Invalid secret configuration at path '{config_path}': {message}")]
@@ -76,7 +76,6 @@ pub enum ConfigError {
   #[error("Configuration Error: {0}")]
   Message(String),
 
-  // Add other potential errors here (IO, secrets, etc.) later
   #[error("Internal error: {0}")]
   Internal(String),
 }

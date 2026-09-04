@@ -19,11 +19,10 @@ pub fn expand_vars(template_str: &str, variables: &HashMap<String, String>) -> S
     .to_string();
 }
 
-// Recursive helper for flattening maps. Doesn't modify the source map.
 fn build_flat_map_recursive(
-  source_map: &HashMap<String, C5DataValue>,       // Takes immutable ref
-  flat_map_out: &mut HashMap<String, C5DataValue>, // Output map
-  current_path: &str,                              // Use &str for efficiency
+  source_map: &HashMap<String, C5DataValue>,
+  flat_map_out: &mut HashMap<String, C5DataValue>,
+  current_path: &str,
 ) {
   for (key, value) in source_map.iter() {
     let escaped_key = escape_key_segment(key);
@@ -32,20 +31,17 @@ fn build_flat_map_recursive(
     } else {
       format!("{}.{}", current_path, escaped_key)
     };
-    
+
     match value {
       C5DataValue::Map(sub_map) => {
         // A map is a "leaf" if it's a directive for a provider or a secret.
         // If so, we treat the entire map as the final value and do NOT recurse.
         if sub_map.contains_key(CONFIG_KEY_PROVIDER) || sub_map.contains_key(".c5encval") {
-          // This is a provider or secret directive. Insert the whole map and stop.
           flat_map_out.insert(new_keypath, value.clone());
         } else {
-          // This is a regular nested map. Recurse into it.
           build_flat_map_recursive(sub_map, flat_map_out, &new_keypath);
         }
       }
-      // Includes Primitives, Bytes, Strings, Booleans, Null, and Arrays
       _ => {
         // Insert non-map values (including arrays) directly into the flat map.
         flat_map_out.insert(new_keypath, value.clone());
@@ -61,11 +57,10 @@ fn build_flat_map_recursive(
 /// It populates the output `config_data` map.
 /// Provider configurations (maps containing a `.provider` key) are skipped during flattening.
 pub(crate) fn build_flat_map(
-  raw_config_data: &HashMap<String, C5DataValue>, // Changed to immutable ref
-  config_data: &mut HashMap<String, C5DataValue>, // Output map
-  keypath: String,                                // Base path (often empty string)
+  raw_config_data: &HashMap<String, C5DataValue>,
+  config_data: &mut HashMap<String, C5DataValue>,
+  keypath: String,
 ) {
-  // Call the recursive helper starting with the base path
   build_flat_map_recursive(raw_config_data, config_data, &keypath);
 }
 

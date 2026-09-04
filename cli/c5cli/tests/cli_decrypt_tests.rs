@@ -91,7 +91,7 @@ fn test_decrypt_to_stdout() -> Result<(), Box<dyn std::error::Error>> {
     .stdout(predicate::str::contains(secret_value))
     .stderr(predicate::str::contains(
       "[Warning] Outputting decrypted content to stdout",
-    )); // Check for warning
+    ));
   Ok(())
 }
 
@@ -125,7 +125,7 @@ fn test_decrypt_to_file() -> Result<(), Box<dyn std::error::Error>> {
     .arg(config_file_path.file_name().unwrap())
     .arg("another.secret")
     .arg(priv_key_name)
-    .arg(&output_file) // Positional output file path
+    .arg(&output_file)
     .arg("--config-root-dir")
     .arg(&config_root)
     .arg("--private-key-dir")
@@ -144,7 +144,7 @@ fn test_decrypt_to_file() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 #[serial]
 fn test_decrypt_to_file_force_overwrite() -> Result<(), Box<dyn std::error::Error>> {
-  let test_dir = tempdir()?; // ... setup dirs as above ...
+  let test_dir = tempdir()?;
   let config_root = test_dir.path().join("config");
   let keys_root = test_dir.path().join("keys");
   let output_files_dir = test_dir.path().join("decrypted_output");
@@ -163,7 +163,7 @@ fn test_decrypt_to_file_force_overwrite() -> Result<(), Box<dyn std::error::Erro
   let priv_key_name = priv_key_path.file_name().unwrap().to_str().unwrap();
   let output_file = output_files_dir.join("output.txt");
 
-  fs::write(&output_file, "pre_existing_content")?; // Create existing file
+  fs::write(&output_file, "pre_existing_content")?;
 
   let mut cmd = c5cli_cmd();
   cmd
@@ -187,7 +187,7 @@ fn test_decrypt_to_file_force_overwrite() -> Result<(), Box<dyn std::error::Erro
 #[test]
 #[serial]
 fn test_decrypt_to_file_no_force_error() -> Result<(), Box<dyn std::error::Error>> {
-  let test_dir = tempdir()?; // ... setup dirs ...
+  let test_dir = tempdir()?;
   let config_root = test_dir.path().join("config");
   let keys_root = test_dir.path().join("keys");
   let output_files_dir = test_dir.path().join("decrypted_output");
@@ -222,9 +222,9 @@ fn test_decrypt_to_file_no_force_error() -> Result<(), Box<dyn std::error::Error
 
   let output_file_name_str = output_file.file_name().unwrap().to_str().unwrap();
   cmd.assert().failure().stderr(
-    predicate::str::contains("Error: File already exists at path:") // Check for the prefix
-      .and(predicate::str::contains(output_file_name_str)) // Check that the filename is in there
-      .and(predicate::str::contains("Hint: Use -y/--force to overwrite")), // Check for the hint
+    predicate::str::contains("Error: File already exists at path:")
+      .and(predicate::str::contains(output_file_name_str))
+      .and(predicate::str::contains("Hint: Use -y/--force to overwrite")),
   );
 
   let content = fs::read_to_string(&output_file)?;
@@ -241,9 +241,8 @@ fn test_decrypt_missing_secret_in_config() -> Result<(), Box<dyn std::error::Err
   fs::create_dir_all(&config_root)?;
   fs::create_dir_all(&keys_root)?;
 
-  // Create an empty config and a key
   let config_file_path = config_root.join("empty.yaml");
-  fs::write(&config_file_path, "")?; // Write an empty string to create an empty file
+  fs::write(&config_file_path, "")?;
   let (_, priv_key_path) = setup_test_c5_keys_for_decrypt(&keys_root, "dummy_key")?;
   let priv_key_name = priv_key_path.file_name().unwrap().to_str().unwrap();
 

@@ -1,4 +1,3 @@
-// c5_core/src/keys.rs
 
 use std::{fs, io::Write, path::Path};
 
@@ -11,19 +10,16 @@ use ed25519_dalek::{
   pkcs8::{self, spki::der::pem::LineEnding},
   SigningKey, VerifyingKey,
 };
-// No specific import needed for generate_keypair, it's a free function
 use rand::{rand_core, rngs::StdRng, CryptoRng, RngCore, SeedableRng};
-use rand_core::OsRng; // Cryptographically secure OS random number generator
+use rand_core::OsRng;
 
-// Algorithm Enums (can be in a separate types.rs or here)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CryptoAlgorithm {
   EciesX25519,
 }
 
-// Structs for holding PEM encoded keys
 #[derive(Debug, Clone)]
-pub struct PemEncodedKey(pub String); // Tuple struct to hold the PEM string
+pub struct PemEncodedKey(pub String);
 
 #[derive(Debug, Clone)]
 pub struct KeyPair {
@@ -50,12 +46,10 @@ pub fn generate_c5_keypair(
         public: public_pem,
         private: private_pem,
       })
-    } // Add other algorithms here if c5_core supports them in the future
-      // _ => Err(CryptoError::UnsupportedAlgorithm(format!("{:?}", algo))),
+    }
   }
 }
 
-// ---- For later: SSH Key Generation ----
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshKeyAlgorithm {
   Ed25519,
@@ -63,7 +57,7 @@ pub enum SshKeyAlgorithm {
 
 #[derive(Debug, Clone)]
 pub struct SshKeyPair {
-  pub private_key_pem: PemEncodedKey, // Or modern OpenSSH format string
+  pub private_key_pem: PemEncodedKey,
   pub public_key_openssh_format: String,
 }
 
@@ -71,25 +65,17 @@ pub fn generate_ssh_keypair(algo: SshKeyAlgorithm, comment_opt: Option<&str>) ->
   match algo {
     SshKeyAlgorithm::Ed25519 => {
       use ed25519_dalek::pkcs8::EncodePrivateKey;
-      // OsRng for c5_core's rand version. This must be compatible with
-      // ed25519-dalek's rand_core if ed25519-dalek itself takes an RNG.
-      // SigningKey::generate takes an R: CryptoRngCore + RngCore normally.
       let mut csprng = StdRng::from_os_rng();
       let signing_key: SigningKey = SigningKey::generate(&mut csprng);
       let verifying_key: VerifyingKey = signing_key.verifying_key();
 
-      // Private Key to PEM:
-      // SigningKey itself doesn't have a direct to_pem.
-      // We need to get the secret bytes and use SecretKey::from_bytes then to_pem.
-      // signing_key.to_bytes() returns the 32-byte secret seed.
       let secret_bytes: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = signing_key.to_bytes();
       let ed_secret_key_for_pem = ed25519_dalek::SecretKey::try_from(secret_bytes)
         .map_err(|e| C5CoreError::PemParse(format!("Failed to create Ed25519 SecretKey from bytes: {}", e)))?;
 
       let private_pem_string = signing_key
-        .to_pkcs8_pem(LineEnding::LF) // This method should exist on SigningKey
+        .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e: pkcs8::Error| {
-          // Error type from pkcs8
           C5CoreError::PemParse(format!("Ed25519 private key to PKCS#8 PEM failed: {}", e))
         })?
         .as_str() // to_pkcs8_pem returns zeroize::SecUtf8, convert to String
@@ -107,9 +93,6 @@ pub fn generate_ssh_keypair(algo: SshKeyAlgorithm, comment_opt: Option<&str>) ->
         format!("ssh-ed25519 {} {}", b64_encoded_key, comment_str)
       };
 
-      // Optional: Validate by parsing with sshkeys (good for testing our format)
-      // let _parsed_for_validation = SshPublicKey::from_string(&openssh_public_key_string)
-      //     .map_err(|e| CryptoError::KeyLoad(format!("Validation parse of generated SSH pubkey string failed: {}", e)))?;
 
       Ok(SshKeyPair {
         private_key_pem: PemEncodedKey(private_pem_string),
@@ -152,7 +135,7 @@ fn build_ed25519_openssh_payload(public_key_bytes: &[u8; 32]) -> Vec<u8> {
 
 pub fn load_ecies_public_key(key_path: &Path) -> Result<ActualEciesPublicKey, C5CoreError> {
   let key_bytes = fs::read(key_path).map_err(|e| C5CoreError::IoWithPath {
-    path: key_path.to_path_buf(), // Added path for context
+    path: key_path.to_path_buf(),
     source: e,
   })?;
   ecies_25519::parse_public_key(&key_bytes).map_err(C5CoreError::from)
@@ -160,7 +143,7 @@ pub fn load_ecies_public_key(key_path: &Path) -> Result<ActualEciesPublicKey, C5
 
 pub fn load_ecies_private_key(key_path: &Path) -> Result<ActualEciesStaticSecret, C5CoreError> {
   let key_bytes = fs::read(key_path).map_err(|e| C5CoreError::IoWithPath {
-    path: key_path.to_path_buf(), // Added path for context
+    path: key_path.to_path_buf(),
     source: e,
   })?;
   ecies_25519::parse_private_key(&key_bytes).map_err(C5CoreError::from)
@@ -174,9 +157,8 @@ mod tests {
   use std::io::Write;
   use tempfile::NamedTempFile;
 
-  // Helper to create a deterministic RNG for tests that require one passed in
   fn test_rng() -> StdRng {
-    StdRng::from_seed([42u8; 32]) // Use a fixed seed
+    StdRng::from_seed([42u8; 32])
   }
 
   #[test]
@@ -191,7 +173,6 @@ mod tests {
     assert!(keypair.private.0.starts_with("-----BEGIN PRIVATE KEY-----"));
     assert!(keypair.private.0.contains("-----END PRIVATE KEY-----"));
 
-    // Further validation: try to parse them back with ecies_25519 parser
     let parsed_pub = ecies_25519::parse_public_key(keypair.public.0.as_bytes());
     assert!(
       parsed_pub.is_ok(),
@@ -221,7 +202,6 @@ mod tests {
     assert!(ssh_keypair.private_key_pem.0.starts_with("-----BEGIN PRIVATE KEY-----"));
     assert!(ssh_keypair.private_key_pem.0.contains("-----END PRIVATE KEY-----"));
 
-    // Use the imported DecodePrivateKey trait for from_pkcs8_pem
     let signing_key_from_pem = SigningKey::from_pkcs8_pem(&ssh_keypair.private_key_pem.0);
     assert!(
       signing_key_from_pem.is_ok(),
@@ -232,8 +212,7 @@ mod tests {
     assert!(ssh_keypair.public_key_openssh_format.starts_with("ssh-ed25519 AAAA"));
     assert!(ssh_keypair.public_key_openssh_format.ends_with(comment.unwrap()));
 
-    // Use the imported SshPublicKeyExternal alias
-    let parsed_ssh_pubkey = SshPublicKeyExternal::from_string(&ssh_keypair.public_key_openssh_format); // Corrected variable name
+    let parsed_ssh_pubkey = SshPublicKeyExternal::from_string(&ssh_keypair.public_key_openssh_format);
     assert!(
       parsed_ssh_pubkey.is_ok(),
       "Generated SSH public key string failed to re-parse with sshkeys: {:?}",
@@ -258,7 +237,6 @@ mod tests {
     let loaded_pub = load_ecies_public_key(pub_pem_file.path())?;
     let loaded_priv = load_ecies_private_key(priv_pem_file.path())?;
 
-    // Verify by comparing raw bytes (if underlying types are comparable or expose bytes)
     // ecies_25519::PublicKey and StaticSecret are x25519_dalek types, which are [u8; 32] wrappers
     let original_pub_from_der = ecies_25519::parse_public_key(keypair.public.0.as_bytes()).unwrap();
     let original_priv_from_der = ecies_25519::parse_private_key(keypair.private.0.as_bytes()).unwrap();
@@ -291,7 +269,6 @@ mod tests {
     assert!(matches!(
       result2,
       Err(C5CoreError::EciesKeyParse(
-        // Updated based on debug output
         ecies_25519::KeyParsingError::InvalidDerPrefix
       ))
     ));
@@ -328,7 +305,6 @@ mod tests {
     let bad_header_pem = "-----BEGIN FOO KEY-----\nABC\n-----END FOO KEY-----";
     let file1 = write_to_temp_file(bad_header_pem).unwrap();
     let result1 = load_ecies_private_key(file1.path());
-    // Custom printing for Result<StaticSecret, C5CoreError>
     match &result1 {
         Ok(_) => eprintln!("Debug Case 1 (Private - Bad Structure): Ok(StaticSecret) - [Sensitive data not printed]"),
         Err(e) => eprintln!("Debug Case 1 (Private - Bad Structure): Err({:?})", e),
@@ -348,12 +324,10 @@ mod tests {
         Ok(_) => eprintln!("Debug Case 2 (Private - Corrupted Base64): Ok(StaticSecret) - [Sensitive data not printed]"),
         Err(e) => eprintln!("Debug Case 2 (Private - Corrupted Base64): Err({:?})", e),
     }
-    // Based on public key test, this might also be InvalidDerPrefix if ecies_25519 error reporting is consistent
     assert!(matches!(
       result2,
       Err(C5CoreError::EciesKeyParse(
-        ecies_25519::KeyParsingError::InvalidDerPrefix // Tentative: verify with debug output
-        // ecies_25519::KeyParsingError::PemError(_) // Original expectation
+        ecies_25519::KeyParsingError::InvalidDerPrefix
       ))
     ));
 

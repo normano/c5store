@@ -100,7 +100,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
           "Configuration file '{}' does not exist. A new one will be created if --commit is used.",
           full_config_path.display()
         );
-        Yaml::Hash(YamlHash::new()) // Start with an empty map
+        Yaml::Hash(YamlHash::new())
       }
       Err(e) => {
         return Err(C5CoreError::IoWithPath {
@@ -114,7 +114,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
       "Configuration file '{}' does not exist. A new one will be created if --commit is used.",
       full_config_path.display()
     );
-    Yaml::Hash(YamlHash::new()) // Start with an empty map
+    Yaml::Hash(YamlHash::new())
   };
 
   // --- 3. Determine Plaintext Bytes ---
@@ -123,7 +123,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
     let old_priv_key_path = args
       .old_private_key_file
       .as_ref()
-      .expect("--old-private-key-file is required by clap for --reencrypt"); // Clap ensures this
+      .expect("--old-private-key-file is required by clap for --reencrypt");
 
     println!(
       "Re-encrypting secret: key_path='{}', secret_key='{}', config_file='{}'",
@@ -230,7 +230,6 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
     .unwrap_or(&args.public_key_file_name);
   let secret_yaml_value_to_set = format_c5_secret_array(core_algo, pk_filename_only, new_b64_ciphertext)?;
 
-  // --- NEW: ADVANCED PATH TRAVERSAL AND INSERTION ---
   let segments = parse_path(&args.key_path)?;
   if segments.is_empty() {
     return Err(C5CoreError::InvalidInput(
@@ -325,7 +324,6 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
   }
 
   // Now, `parent_node` is the mutable reference to the map or object where we'll insert the final key.
-  // The final segment determines what to do inside this parent.
   match final_key_segment {
     PathSegment::Key(key) => {
       if parent_node.is_null() {
@@ -333,7 +331,6 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
       }
 
       if let Yaml::Hash(map) = parent_node {
-        // Create the new map that will hold the secret.
         let mut secret_map = YamlHash::new();
         secret_map.insert(Yaml::String(args.secret_segment.clone()), secret_yaml_value_to_set);
 
@@ -394,7 +391,6 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
     println!("\n----- DRY RUN - Encrypt -----");
     println!("Target configuration file would be: {}", full_config_path.display());
     if let Some(out_file) = &args.output_file {
-      // Inform about output_file if in dry_run and it's set
       println!(
         "(If committed with --output-file, output would be to: {})",
         out_file.display()
@@ -402,7 +398,7 @@ pub fn handle_encrypt(args: EncryptArgs) -> Result<(), C5CoreError> {
     }
     println!("The {} would be updated/created.", display_secret_location_info);
     println!("\nFull resulting YAML content:");
-    println!("{}", output_yaml_str); // This will show ".c5encval" (with quotes)
+    println!("{}", output_yaml_str);
     println!("\nUse --commit to write these changes.");
   }
 

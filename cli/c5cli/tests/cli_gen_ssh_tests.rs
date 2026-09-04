@@ -30,7 +30,6 @@ fn test_gen_ssh_default_no_args() -> Result<(), Box<dyn std::error::Error>> {
   assert!(output_dir.join("id_ed25519").exists());
   assert!(output_dir.join("id_ed25519.pub").exists());
 
-  // Verify .pub file content
   let pub_content = fs::read_to_string(output_dir.join("id_ed25519.pub"))?;
   assert!(pub_content.starts_with("ssh-ed25519 AAAA"));
   Ok(())
@@ -46,7 +45,7 @@ fn test_gen_ssh_with_prefix_output_dir_and_comment() -> Result<(), Box<dyn std::
     .arg("gen")
     .arg("ssh")
     .arg("custom_id_rsa") // Positional prefix
-    .arg("--algo") // Assuming algo is a flag for SSH keys too, might be ed25519 only for now
+    .arg("--algo")
     .arg("ed25519") // Be explicit for test
     .arg("--output-dir")
     .arg(specific_output_dir.as_os_str())

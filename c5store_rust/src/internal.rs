@@ -23,12 +23,10 @@ pub struct C5StoreDataValueRef<'a> {
 
 impl<'a> C5StoreDataValueRef<'a> {
   pub fn value(&'a self) -> Option<&'a C5DataValue> {
-    // Extract value from tuple
     self._lock.get(&self._natural_key_path).map(|(value, _source)| value)
   }
 
   pub fn source(&'a self) -> Option<&'a ConfigSource> {
-    // Extract source from tuple
     self._lock.get(&self._natural_key_path).map(|(_value, source)| source)
   }
 }
@@ -60,7 +58,6 @@ impl C5DataStore {
     };
   }
 
-  // Gets, if exists, cloned value from config
   pub fn get_data(&self, key: &str) -> Option<C5DataValue> {
     self._stats_recorder.record_counter_increment(
       hashmap! {
@@ -74,7 +71,6 @@ impl C5DataStore {
     return rwlock.get(&natural_key_path).map(|(value, _source)| value.clone());
   }
 
-  // Gets, if exist, a reference context to value.
   // This exists if there are memory use concerns around calling get_data
   pub fn get_data_ref(&self, key: &str) -> Option<C5StoreDataValueRef> {
     self._stats_recorder.record_counter_increment(
@@ -98,7 +94,7 @@ impl C5DataStore {
   }
 
   pub fn set_data(&self, key: &str, value: C5DataValue) -> Option<C5DataValue> {
-    let source = ConfigSource::Provider("UnknownProvider".to_string()); // Or SetProgrammatically/Unknown
+    let source = ConfigSource::Provider("UnknownProvider".to_string());
     self._set_data_internal(key, value, source)
   }
 
@@ -111,7 +107,6 @@ impl C5DataStore {
         if let Some(secret_val) = map.get(".c5encval") {
           let temp_log_key = format!("{}.<secret>", path_for_logging);
 
-          // Call _get_secret using `self`.
           if let Some(decrypted_bytes) = self._get_secret(&temp_log_key, secret_val) {
             *value = C5DataValue::Bytes(decrypted_bytes);
           } else {
@@ -120,27 +115,25 @@ impl C5DataStore {
           return; // Stop traversing this branch.
         }
 
-        // If not a secret itself, traverse its children.
         for (key, child_value) in map.iter_mut() {
           let child_path = format!("{}.{}", path_for_logging, key);
           self._decrypt_value_recursive_in_place(child_value, &child_path);
         }
       }
       C5DataValue::Array(arr) => {
-        // Traverse the children of an array.
         for (i, item) in arr.iter_mut().enumerate() {
           let item_path = format!("{}.{}", path_for_logging, i);
           self._decrypt_value_recursive_in_place(item, &item_path);
         }
       }
-      _ => (), // Primitives are ignored.
+      _ => (),
     }
   }
 
   pub(crate) fn _set_data_internal(
     &self,
     key: &str,
-    mut value: C5DataValue, // Value is mutable
+    mut value: C5DataValue,
     source: ConfigSource,
   ) -> Option<C5DataValue> {
     self._stats_recorder.record_counter_increment(
@@ -148,7 +141,6 @@ impl C5DataStore {
       "set_attempts".to_string(),
     );
 
-    // Call the new internal method on self.
     self._decrypt_value_recursive_in_place(&mut value, key);
 
     return self
@@ -158,11 +150,9 @@ impl C5DataStore {
       .map(|(old_value, _old_source)| old_value);
   }
 
-  // Public method to get source info
   pub fn get_source_info(&self, key: &str) -> Option<ConfigSource> {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
-    // Extract source info from tuple and clone it
     rwlock.get(&natural_key_path).map(|(_value, source)| source.clone())
   }
 
@@ -292,17 +282,13 @@ impl C5DataStore {
     let natural_key_path = NatLexOrderedString::from(key);
     let rwlock = self._data.read();
 
-    // Check if any key in the map starts with the prefix + "."
     // Use range scan for efficiency with SkipMap
     let prefix_dot = key.to_string() + ".";
     let mut range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);
 
     // Check the first element greater than or equal to the key itself
     if let Some((found_key, _)) = range.next() {
-      // If the found key starts with the original key OR the key + ".", it's a prefix match
       if found_key.0.starts_with(key) {
-        // Handles exact match case again, and prefix case like "a.b" matching "a.b.c"
-        // Check if it actually starts with prefix + dot if not an exact match
         if found_key.0 != key && found_key.0.starts_with(&prefix_dot) {
           return true;
         }
@@ -367,12 +353,10 @@ impl C5DataStore {
       Bound::Included(NatLexOrderedString::from(prefix_dot.as_str()))
     };
 
-    // 1. Collect all relevant child paths and their values into a sorted map.
     let mut child_paths = BTreeMap::new();
     for (key_nat_lex, (c5_value, _source)) in data_lock.range(start_bound.as_ref(), Bound::Unbounded) {
       let full_key = &key_nat_lex.0;
 
-      // Stop if we've iterated past the prefix.
       if !prefix.is_empty() && !full_key.starts_with(&prefix_dot) {
         // Also need to handle the case where the key is the prefix itself
         if full_key != prefix {
@@ -403,7 +387,6 @@ impl C5DataStore {
       return Ok(C5DataValue::Null);
     }
 
-    // 2. Kick off the recursive build process.
     Ok(build_nested_value(child_paths))
   }
 }
@@ -446,9 +429,8 @@ impl C5StoreSubscriptions {
         listener(notify_key_path, changed_key_path, new_value);
       }
     }
-    drop(simple_lock); // Release read lock
+    drop(simple_lock);
 
-    // Notify detailed listeners
     let detailed_lock = self._detailed_listeners.read();
     if let Some(detailed_listeners) = detailed_lock.get_vec(notify_key_path) {
       for listener in detailed_listeners {
@@ -485,7 +467,6 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<String>, C5DataValue>, force
     }
   }
 
-  // Group paths by their first segment (e.g., "servers", "loadbalancer").
   let mut groups: BTreeMap<String, BTreeMap<Vec<String>, C5DataValue>> = BTreeMap::new();
   for (path, value) in paths {
     if !path.is_empty() {
@@ -497,9 +478,7 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<String>, C5DataValue>, force
 
   let child_keys: BTreeSet<String> = groups.keys().cloned().collect();
 
-  // The key decision logic: Use the `force_map` override first, then apply array heuristic.
   if !force_map && is_array_heuristic(&child_keys) {
-    // Build an Array
     let mut array = Vec::new();
     for i in 0..child_keys.len() {
       let key_str = i.to_string();
@@ -510,7 +489,6 @@ fn build_nested_value_recursive(paths: BTreeMap<Vec<String>, C5DataValue>, force
     }
     C5DataValue::Array(array)
   } else {
-    // Build a Map
     let mut map = HashMap::new();
     for (key, sub_paths) in groups {
       // Check if this key signals that its children must be a map.
@@ -532,19 +510,14 @@ fn is_array_heuristic(keys: &BTreeSet<String>) -> bool {
   }
 
   for (i, key) in keys.iter().enumerate() {
-    // Try to parse the key as a usize.
     if let Ok(num_key) = key.parse::<usize>() {
-      // Check if it matches the expected sequence index.
       if num_key != i {
-        // Found a gap or non-sequential key. Not an array.
         return false;
       }
     } else {
-      // Found a non-numeric key. Not an array.
       return false;
     }
   }
-  // If we get through the whole loop, it's a perfect sequence.
   true
 }
 
@@ -557,23 +530,18 @@ fn split_and_unescape_path(path: &str) -> Vec<String> {
 
   while let Some(c) = chars.next() {
     if is_escaped {
-      // The previous char was '\', so this char is a literal.
       current_part.push(c);
       is_escaped = false;
     } else if c == '\\' {
-      // This is an escape char, flag it for the next loop iteration.
       is_escaped = true;
     } else if c == '.' {
-      // This is a separator, push the completed part and reset.
       parts.push(current_part);
       current_part = String::new();
     } else {
-      // A normal character.
       current_part.push(c);
     }
   }
 
-  // Add the final part.
   parts.push(current_part);
   parts
 }

@@ -222,7 +222,6 @@ impl C5ValueProvider for C5FileValueProvider {
               ),
               None,
             );
-            // Skip this entry on failure
             continue;
           }
         };

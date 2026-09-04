@@ -129,8 +129,8 @@ impl ChangeNotifier {
   pub fn notify_changed(
     &self,
     key: &str,
-    old_value: Option<C5DataValue>, // Pass owned Option<C5DataValue>
-    new_value: C5DataValue,         // Pass owned C5DataValue
+    old_value: Option<C5DataValue>,
+    new_value: C5DataValue,
   ) {
     let debounce_job_lock = self.debounce_job_handle.lock();
 
@@ -149,12 +149,11 @@ impl ChangeNotifier {
         let changes_to_process: HashMap<String, PendingChange> = pending_changes_arc.lock().drain().collect();
 
         let debounce_job_lock_inner = debounce_mut.lock();
-        let mut job_handle_borrow_inner = debounce_job_lock_inner.borrow_mut(); // Mutable borrow here is fine
-        job_handle_borrow_inner.take(); // Clear the handle
-        drop(job_handle_borrow_inner); // Release mutable borrow
-        drop(debounce_job_lock_inner); // Release lock
+        let mut job_handle_borrow_inner = debounce_job_lock_inner.borrow_mut();
+        job_handle_borrow_inner.take();
+        drop(job_handle_borrow_inner);
+        drop(debounce_job_lock_inner);
 
-        // Process the collected changes
         if !changes_to_process.is_empty() {
           // Build map of ancestors to notify for each actual change
           let mut notifications_to_send: HashsetMultiMap<String, String> = HashsetMultiMap::new();
@@ -173,15 +172,14 @@ impl ChangeNotifier {
             }
           }
 
-          // Iterate through actual changed keys and their corresponding ancestor paths to notify
           for (changed_key, notify_paths) in notifications_to_send.iter() {
             if let Some(change_detail) = changes_to_process.get(changed_key) {
               for notify_path in notify_paths {
                 subscriptions.notify_value_change(
                   notify_path,
                   changed_key,
-                  &change_detail.new_value,         // Pass reference to stored new value
-                  change_detail.old_value.as_ref(), // Pass reference to stored Option<old value>
+                  &change_detail.new_value,
+                  change_detail.old_value.as_ref(),
                 );
               }
             }
@@ -211,25 +209,20 @@ pub trait C5Store {
 
   fn path_exists(&self, key: &str) -> bool;
 
-  //
-  // Listens to changes to the given keyPath. keyPath can be any the entire path or ancestors.
-  // By listening to an ancestor, one will receive one change event even if two children change.
-  //
+  /// Listens to changes at `key_path`, which may be a whole path or any ancestor of one.
+  ///
+  /// Subscribing to an ancestor yields one event per changed descendant.
   fn subscribe(&self, key_path: &str, listener: Box<ChangeListener>);
 
   fn subscribe_detailed(&self, key_path: &str, listener: Box<DetailedChangeListener>);
 
   fn branch(&self, key_path: &str) -> C5StoreBranch;
 
-  //
-  // Searches for all keypaths that relative to currentKeyPath + given keyPath
-  // @return A list of Key Paths
-  //
+  /// Returns every key path under `current_key_path()` joined with `key_path`,
+  /// or every key path under `current_key_path()` when `key_path` is `None`.
   fn key_paths_with_prefix(&self, key_path: Option<&str>) -> Vec<String>;
 
-  //
-  // @return null if root, prefixKey if branch
-  //
+  /// Returns `""` on the root store, or the branch prefix on a branch.
   fn current_key_path(&self) -> &str;
 
   fn get_source(&self, key_path: &str) -> Option<ConfigSource>;
@@ -277,7 +270,6 @@ impl C5Store for C5StoreRoot {
         key_path,
         &direct_c5_value
       );
-      // Attempt to deserialize this direct C5DataValue
       // We need to check if it's a Map or Array, as structs usually deserialize from these.
       // Primitive types might deserialize if the struct is a newtype struct.
       match direct_c5_value {
@@ -289,12 +281,10 @@ impl C5Store for C5StoreRoot {
         | C5DataValue::Float(_)
         | C5DataValue::Boolean(_)
         | C5DataValue::Bytes(_) => {
-          // It's a potentially deserializable type.
           let deserializer = C5SerdeValueDeserializer::from_c5(&direct_c5_value);
           match Val::deserialize(deserializer) {
-            Ok(result) => return Ok(result), // Success with direct value!
+            Ok(result) => return Ok(result),
             Err(direct_err) => {
-              // It existed directly, but didn't deserialize.
               if !matches!(direct_c5_value, C5DataValue::Map(_)) && !key_path.is_empty() {
                 // If the direct value wasn't a map (and not at root), deserialization likely failed
                 // because the type was wrong (e.g., trying to deserialize a struct from a C5 String).
@@ -302,7 +292,6 @@ impl C5Store for C5StoreRoot {
                 // We still fall through to prefix fetch, as the prefix itself might contain the map.
               }
 
-              // Log potential issue or decision to fallback
               debug!(
                 "Direct value at '{}' failed to deserialize fully ({:?}), trying prefix fetch.",
                 key_path, direct_err
@@ -327,9 +316,6 @@ impl C5Store for C5StoreRoot {
     match self._data_store.fetch_children_as_c5_value(key_path) {
       Ok(C5DataValue::Null) => {
         // No direct value (handled above) and no children found via prefix.
-        // This could also mean the prefix *was* the target and we already tried and failed above.
-        // If we are here, and a direct value was found but failed to deserialize, that error might be more relevant.
-        // However, `KeyNotFound` is the common case if nothing was found at all.
         Err(ConfigError::KeyNotFound(key_path.to_string()))
       }
       Ok(reconstructed_c5_value) => {
@@ -337,12 +323,8 @@ impl C5Store for C5StoreRoot {
           "[GET_INTO_STRUCT] Reconstructed C5DataValue: {:?}",
           &reconstructed_c5_value
         );
-        // Attempt to deserialize the C5DataValue reconstructed from children
         let deserializer = C5SerdeValueDeserializer::from_c5(&reconstructed_c5_value);
         Val::deserialize(deserializer).map_err(|e| {
-          // The error `e` here is already a ConfigError from our C5ValueDeserializer
-          // We might want to wrap it to add more context if needed, but often it's fine.
-          // Example: if `e` is TypeMismatch, we might want to add the key_path here.
           match e {
             ConfigError::TypeMismatch {
               key: _,
@@ -360,11 +342,11 @@ impl C5Store for C5StoreRoot {
                 source,
               }
             }
-            other_err => other_err, // Propagate other errors like Message, KeyNotFound (from within MapAccess etc.)
+            other_err => other_err,
           }
         })
       }
-      Err(e) => Err(e), // Propagate errors from fetch_children_as_c5_value
+      Err(e) => Err(e),
     }
   }
 
@@ -555,7 +537,6 @@ impl C5StoreMgr {
       .insert(name.to_string(), Box::from(value_provider));
 
     if refresh_period_sec > 0 {
-      // logger.debug(format!("Will refresh {} Value Provider every {} seconds.", name, refresh_period_sec));
 
       let refresh_period_duration = Duration::from_secs(refresh_period_sec);
 
@@ -579,8 +560,6 @@ impl C5StoreMgr {
       );
 
       self._scheduled_provider_job_handles.push(job_handle);
-    } else {
-      // logger.debug(format!("Will not be refreshing {} Value Provider", name));
     }
   }
 }
@@ -611,7 +590,7 @@ pub fn create_c5store(
   #[cfg(feature = "dotenv")]
   {
     if let Some(dotenv_path) = &options.dotenv_path {
-      debug!("[dotenv] Loading environment from {:?}", dotenv_path); // Optional log
+      debug!("[dotenv] Loading environment from {:?}", dotenv_path);
       match dotenvy::from_path(dotenv_path) {
         Ok(_) => {}
         Err(e) if e.not_found() => {} // Ignore if file not found, common case
@@ -623,7 +602,6 @@ pub fn create_c5store(
         }
       }
     } else {
-      // Maybe try loading default .env path? Or require explicit path?
       // Let's require explicit path for now via C5StoreOptions.
     }
   }
@@ -704,22 +682,21 @@ pub fn create_c5store(
       let change_notifier = change_notifier_clone.clone();
 
       // Check *before* setting the data
-      let old_value = data_store.get_data(key); // Get current value
+      let old_value = data_store.get_data(key);
 
       let needs_update = match &old_value {
-        Some(ov) => ov != &value, // Update if value differs
-        None => true,             // Update if key didn't exist
+        Some(ov) => ov != &value,
+        None => true,
       };
 
       if needs_update {
         // Set the data (which might decrypt secrets)
         // Use internal setter to avoid infinite loop if set_data called set_data
-        // And pass a relevant source if possible (tricky here)
-        let source = ConfigSource::SetProgrammatically; // Or determine source if possible
-        let _prev_val = data_store._set_data_internal(key, value.clone(), source); // Use internal setter
+        let source = ConfigSource::SetProgrammatically;
+        let _prev_val = data_store._set_data_internal(key, value.clone(), source);
 
         // Notify AFTER setting the data, passing old and new values
-        change_notifier.notify_changed(key, old_value, value); // Pass owned values
+        change_notifier.notify_changed(key, old_value, value);
       }
     })
   };
@@ -791,7 +768,7 @@ pub fn load_secret_key_files(
         entry_path,
         key_result.err()
       );
-      continue; // Skip file on read error? Or return Err? Let's skip for now.
+      continue;
     }
     let mut key = key_result.unwrap();
 
@@ -813,24 +790,22 @@ pub fn load_secret_key_files(
       continue;
     }
 
-    // Robustly get key name
     let key_name = match file_name.rfind('.') {
       Some(dot_index) => &file_name[..dot_index],
       None => file_name, // Should not happen if extension exists, but handle defensively
     };
 
     if file_ext == "pem" {
-      // Handle potential parsing errors
       match parse_openssl_25519_privkey(&key) {
         Ok(parsed_key) => key = parsed_key.to_bytes().to_vec(),
         Err(e) => {
           warn!("[Secrets] Error parsing PEM key file {:?}: {}", entry_path, e);
-          continue; // Skip invalid PEM files
+          continue;
         }
       }
     }
 
-    debug!("[Secrets] Loading key '{}' from file {:?}", key_name, entry_path); // Optional log
+    debug!("[Secrets] Loading key '{}' from file {:?}", key_name, entry_path);
     secret_key_store.set_key(key_name, key);
   }
   Ok(())
@@ -845,7 +820,7 @@ fn load_secret_keys_from_env(prefix: &str, secret_key_store: &mut SecretKeyStore
       // Assume value is base64 encoded key bytes
       match base64::engine::general_purpose::STANDARD.decode(&value) {
         Ok(key_bytes) => {
-          debug!("[Secrets] Loading key '{}' from env var '{}'", key_name, key); // Optional log
+          debug!("[Secrets] Loading key '{}' from env var '{}'", key_name, key);
           secret_key_store.set_key(&key_name, key_bytes);
         }
         Err(e) => {
@@ -879,13 +854,12 @@ mod tests {
   use crate::{C5Store, Case};
   use crate::{C5StoreMgr, C5StoreOptions, SecretOptions, create_c5store, default_config_paths};
 
-  // Helper struct for get_into_struct tests
   #[derive(Deserialize, Debug, PartialEq)]
   struct DbConfig {
     host: String,
     port: u16,
-    user: Option<String>, // Make fields optional if they might not exist
-    #[serde(default)] // Example: provide default for missing fields
+    user: Option<String>,
+    #[serde(default)]
     timeout: u32,
   }
 
@@ -914,15 +888,10 @@ mod tests {
   /// Initializes the logger for tests. This function is safe to call multiple times,
   /// but it will only initialize the logger on the first call.
   fn init_logger() {
-    // The `call_once` method ensures that the closure is executed at most once,
-    // even if `init_logger` is called from multiple test threads.
     INIT.call_once(|| {
       env_logger::builder()
-        // .is_test(true) formats the output for tests and directs it to stderr
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
-        // .try_init() returns an error if the logger is already initialized,
-        // which `Once` should prevent. .ok() silently ignores the error.
         .try_init()
         .ok();
     });
@@ -966,7 +935,6 @@ mod tests {
     // Uses the standard config files which have a nested structure
     let (c5store, _c5store_mgr) = _create_c5store_test();
 
-    // Assuming DbConfig struct is defined as above
     let db_conf_res = c5store.get_into_struct::<DbConfig>("database");
 
     assert!(
@@ -1012,7 +980,6 @@ mod tests {
     assert_eq!(db_conf.timeout, 5000);
 
     unsafe {
-      // Clean up env vars
       env::remove_var("C5_FLATDB__HOST");
       env::remove_var("C5_FLATDB__PORT");
       env::remove_var("C5_FLATDB__USER");
@@ -1053,7 +1020,6 @@ mod tests {
   #[serial]
   fn test_get_into_struct_array_inference() {
     unsafe {
-      // Test reconstruction of arrays from numeric keys
       env::set_var("C5_WEB__SERVERS__0__IP", "1.1.1.1");
       env::set_var("C5_WEB__SERVERS__0__PORT", "80");
       env::set_var("C5_WEB__SERVERS__1__IP", "2.2.2.2");
@@ -1135,7 +1101,6 @@ mod tests {
       match &res {
         Err(ConfigError::ConversionError { key, message }) => {
           // The key from C5SerdeValueDeserializer is often empty or the direct field name.
-          // The message should be specific.
           (key.is_empty() || key == "features" || key == "features.new_dashboard")
             && message.contains("'maybe' could not be converted to boolean")
         }
@@ -1219,31 +1184,25 @@ mod tests {
   #[serial]
   #[cfg(feature = "secrets")]
   fn test_decryption_pipeline_populates_store_correctly() {
-    // --- STAGE 1: Test that the full file->decrypt->store pipeline works ---
 
     info!("\n--- TEST: Verifying decryption pipeline populates the store ---");
 
-    // 1. Configure the store with the real decryptor
     let mut options = C5StoreOptions::default();
     options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
       store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
       store.set_key("dummy_key", vec![1, 2, 3]);
     }));
 
-    // 2. Load the store from the correctly formatted test file
     let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
     let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
 
-    // 3. Assert the final state of the store after decryption
     info!("\n--- Asserting final store state ---");
 
-    // Assert plaintext values were loaded
     assert_eq!(
       c5store.get("database.host").unwrap(),
       C5DataValue::String("db.prod.com".to_string())
     );
 
-    // Assert that the DECRYPTED values are in the store with the correct type (Bytes)
     assert_eq!(
       c5store.get("secrets.api_key").unwrap(),
       C5DataValue::Bytes("secret-key-123".as_bytes().to_vec())
@@ -1261,7 +1220,6 @@ mod tests {
       C5DataValue::Bytes("byte-data".as_bytes().to_vec())
     );
 
-    // Assert that the ORIGINAL ENCRYPTED VALUES ARE GONE
     assert!(!c5store.exists("secrets.api_key.c5encval"));
 
     info!("✅ Stage 1 Passed: Store is populated correctly from decrypted secrets.");
@@ -1273,7 +1231,6 @@ mod tests {
   fn test_end_to_end_deserialization_with_secrets() {
     use crate::secrets::Base64SecretDecryptor;
 
-    // --- 1. Define the Target Structs ---
     #[derive(Deserialize, Debug, PartialEq)]
     struct FullConfig {
       database: DatabaseConfig,
@@ -1292,27 +1249,22 @@ mod tests {
       raw_key: Vec<u8>,
     }
 
-    // --- 2. Configure C5StoreOptions with the REAL Base64SecretDecryptor ---
     let mut options = C5StoreOptions::default();
     options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
       store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
       store.set_key("dummy_key", vec![1, 2, 3]);
     }));
 
-    // --- 3. Load the Store from our correctly formatted test file ---
     let config_path = PathBuf::from("resources/test_e2e_secrets.yaml");
     let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation failed");
 
-    // --- 4. Perform Deserialization and Assertions ---
     let config = c5store
       .get_into_struct::<FullConfig>("")
       .expect("Deserialization failed");
 
-    // Assert plaintext values are correct
     assert_eq!(config.database.host, "db.prod.com");
     assert_eq!(config.database.port, 5432);
 
-    // Assert that all secrets were decrypted and deserialized correctly
     assert_eq!(config.secrets.api_key, "secret-key-123");
     assert_eq!(config.secrets.app_id, 55);
     assert_eq!(config.secrets.timeout, 2.0);
@@ -1323,7 +1275,6 @@ mod tests {
   #[serial]
   #[cfg(feature = "secrets")]
   fn test_get_into_string_from_decrypted_bytes() {
-    // --- 1. Prepare Test Configuration ---
     // The expected string is "Hello, Secret World!"
     // Its base64 representation is "SGVsbG8sIFNlY3JldCBXb3JsZCE="
     //
@@ -1350,7 +1301,6 @@ my_bad_utf8_secret:
       .unwrap();
     write!(temp_config_file, "{}", config_content).unwrap();
 
-    // Read the file's content directly from the disk to verify it.
     let file_path = temp_config_file.path();
     let content_on_disk = std::fs::read_to_string(file_path).unwrap();
     assert_eq!(
@@ -1360,19 +1310,15 @@ my_bad_utf8_secret:
 
     let config_path = temp_config_file.path().to_path_buf();
 
-    // --- 2. Configure C5Store for Secrets ---
     let mut options = C5StoreOptions::default();
     options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
-      // Use a simple decryptor that just decodes base64
       store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
       // Key content doesn't matter for this decryptor, but it must exist
       store.set_key("test_key", vec![]);
     }));
 
-    // --- 3. Create the Store ---
     let (c5store, _mgr) = create_c5store(vec![config_path], Some(options)).expect("Store creation for test failed");
 
-    // --- 4. Test the Success Case (Valid UTF-8) ---
     let result = c5store.get_into::<String>("my_secret_string");
 
     assert!(
@@ -1383,7 +1329,6 @@ my_bad_utf8_secret:
     let secret_string = result.unwrap();
     assert_eq!(secret_string, "Hello, Secret World!");
 
-    // --- 5. Test the Failure Case (Invalid UTF-8) ---
     let bad_result = c5store.get_into::<String>("my_bad_utf8_secret");
 
     assert!(
@@ -1397,12 +1342,10 @@ my_bad_utf8_secret:
     );
   }
 
-  // In c5store_rust/src/lib.rs -> mod tests { ... }
 
   #[test]
   #[serial]
   fn test_array_overwrite_during_merge() {
-    // --- 1. Prepare Test Configuration Files ---
     let config1_content = r#"
     test:
       key1:
@@ -1429,12 +1372,9 @@ my_bad_utf8_secret:
     // The order is important: file2 should overwrite file1
     let config_paths = vec![file1.path().to_path_buf(), file2.path().to_path_buf()];
 
-    // --- 2. Create the Store ---
     let (c5store, _mgr) = create_c5store(config_paths, None).expect("Store creation failed");
 
-    // --- 3. Assert Final State ---
 
-    // Assert that the empty array was correctly overwritten by the full one.
     let expected_array = C5DataValue::Array(vec![
       C5DataValue::String("a".to_string()),
       C5DataValue::String("b".to_string()),
@@ -1445,7 +1385,6 @@ my_bad_utf8_secret:
       "The empty array from the first file was not overwritten."
     );
 
-    // Assert that other keys were merged correctly.
     assert_eq!(
       c5store.get("test.key2").unwrap(),
       C5DataValue::String("from config1".to_string()),
@@ -1462,7 +1401,6 @@ my_bad_utf8_secret:
   #[serial]
   #[cfg(feature = "secrets")]
   fn test_array_of_objects_overwrite_with_secrets() {
-    // --- 1. Define Target Structs for Deserialization ---
     #[derive(Deserialize, Debug, PartialEq)]
     struct Endpoint {
       name: String,
@@ -1474,7 +1412,6 @@ my_bad_utf8_secret:
       endpoints: Vec<Endpoint>,
     }
 
-    // --- 2. Prepare Test Configuration Files ---
     // Config 1 has an empty array. This will be overwritten.
     let config1_content = r#"
 services:
@@ -1496,7 +1433,6 @@ services:
         - "c3VwZXItc2VjcmV0LWF1dGgta2V5"
 "#;
 
-    // Create temporary files with .yaml extension
     let mut file1 = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
     write!(file1, "{}", config1_content).unwrap();
     file1.flush().unwrap();
@@ -1508,17 +1444,14 @@ services:
     // The order is important: file2 should overwrite file1
     let config_paths = vec![file1.path().to_path_buf(), file2.path().to_path_buf()];
 
-    // --- 3. Configure C5Store for Secrets ---
     let mut options = C5StoreOptions::default();
     options.secret_opts.secret_key_store_configure_fn = Some(Box::new(|store| {
       store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
       store.set_key("test_key", vec![]);
     }));
 
-    // --- 4. Create the Store ---
     let (c5store, _mgr) = create_c5store(config_paths, Some(options)).expect("Store creation failed");
 
-    // --- 5. Perform Deserialization and Assertions ---
     let result = c5store.get_into_struct::<ServicesConfig>("services");
 
     assert!(
@@ -1528,7 +1461,6 @@ services:
     );
     let config = result.unwrap();
 
-    // Define the final, expected state of the struct after merging and decryption.
     let expected_config = ServicesConfig {
       endpoints: vec![
         Endpoint {
@@ -1542,14 +1474,12 @@ services:
       ],
     };
 
-    // Assert that the final struct matches the expected state.
     assert_eq!(config, expected_config);
   }
 
   #[test]
   #[serial]
   fn test_get_into_struct_from_file_provider_with_root_array() {
-    // The struct definitions from step 1 go here...
     #[derive(Deserialize, Debug, PartialEq)]
     #[serde(rename_all = "camelCase")]
     struct CommodityWeights {
@@ -1572,11 +1502,9 @@ services:
 
     init_logger();
 
-    // --- 1. Create a controlled temporary directory for all test files ---
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let base_path = temp_dir.path();
 
-    // --- 2. Prepare the data file inside the temp directory ---
     let data_yaml_content = r#"
 - region: 2198
   sectors: 
@@ -1594,7 +1522,6 @@ services:
     let mut data_file = File::create(&data_file_path).unwrap();
     write!(data_file, "{}", data_yaml_content).unwrap();
 
-    // --- 3. Prepare the main config file, using a RELATIVE path ---
     // The provider will combine its base_path with this relative path.
     let main_config_content = r#"
 market:
@@ -1608,29 +1535,22 @@ market:
     write!(main_config_file, "{}", main_config_content).unwrap();
 
     // The files are flushed and closed when `data_file` and `main_config_file` go out of scope here.
-    // This is more reliable than relying on an active handle.
 
-    // --- 4. Initialize C5Store from the main config file ---
     let (c5store, mut c5store_mgr) = create_c5store(
-      vec![main_config_path], // Load from the main config
+      vec![main_config_path],
       None,
     )
     .expect("Test store creation failed");
 
-    // Register the C5FileValueProvider. The base path doesn't matter here since
-    // we provided an absolute path in the config.
     c5store_mgr.set_value_provider(
       "resources",
       C5FileValueProvider::default(base_path.to_str().unwrap()), // Base path is our temp dir
       0,
     );
 
-    // --- 4. Perform Deserialization and Assertions ---
-    // The key is "market.regions", which is where the provider placed the array.
     // The target type is Vec<RegionData> because the root of the data file is an array.
     let result = c5store.get_into_struct::<Vec<RegionData>>("market.regions");
 
-    // Assert that the operation was successful
     assert!(
       result.is_ok(),
       "Failed to deserialize struct from file provider: {:?}",
@@ -1639,16 +1559,13 @@ market:
 
     let regions = result.unwrap();
 
-    // Assert the content is correct
     assert_eq!(regions.len(), 2, "Should have loaded two regions from the array");
 
-    // Check the first region
     assert_eq!(regions[0].region, 2198);
     assert_eq!(regions[0].sectors.len(), 1);
     assert_eq!(regions[0].sectors[0].id, 1);
     assert_eq!(regions[0].sectors[0].commodity_weights.weights.get(&120235), Some(&665));
 
-    // Check the second region
     assert_eq!(regions[1].region, 2199);
     assert_eq!(regions[1].sectors[0].commodity_weights.weights.get(&120877), Some(&75));
   }
@@ -1662,18 +1579,12 @@ market:
     #[derive(Deserialize, Debug, PartialEq)]
     #[serde(rename_all = "camelCase")]
     struct MilestoneConfig {
-      // The field name matches the YAML key.
-      // The HashMap key type `u32` matches our target. Our fix will handle
-      // converting the string keys "2", "5", "10" from the YAML into u32.
       milestone_contracts_by_tier: HashMap<u32, Vec<String>>,
     }
 
-    // --- 1. Create a controlled temporary directory for all test files ---
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let base_path = temp_dir.path();
 
-    // --- 2. Prepare the data file with the milestone contracts ---
-    // This YAML contains the map with numeric keys.
     let data_yaml_content = r#"
 milestoneContractsByTier:
   2:
@@ -1688,9 +1599,6 @@ milestoneContractsByTier:
     let mut data_file = std::fs::File::create(&data_file_path).unwrap();
     write!(data_file, "{}", data_yaml_content).unwrap();
 
-    // --- 3. Prepare the main config file to set up the provider ---
-    // This tells the store to load the data from the file provider
-    // and place it under the key "milestones".
     let main_config_content = r#"
 milestones:
   .provider: "resources"
@@ -1701,22 +1609,16 @@ milestones:
     let mut main_config_file = std::fs::File::create(&main_config_path).unwrap();
     write!(main_config_file, "{}", main_config_content).unwrap();
 
-    // --- 4. Initialize C5Store and the Provider ---
     let (c5store, mut c5store_mgr) = create_c5store(vec![main_config_path], None).expect("Test store creation failed");
 
-    // Register the provider, giving it the temp directory as its base path.
     c5store_mgr.set_value_provider(
       "resources", // This name matches ".provider" in the YAML
       C5FileValueProvider::default(base_path.to_str().unwrap()),
       0, // No recurring refresh
     );
 
-    // --- 5. Perform Deserialization and Assertions ---
-    // We ask for the `MilestoneConfig` struct from the "milestones" key.
-    // The provider loaded the YAML content, which is a map, into a C5DataValue::Map at this key.
     let result = c5store.get_into_struct::<MilestoneConfig>("milestones");
 
-    // Assert that the entire operation was successful. This is the main check.
     assert!(
       result.is_ok(),
       "Failed to deserialize struct with numeric map keys: {:?}",
@@ -1725,20 +1627,17 @@ milestones:
 
     let config = result.unwrap();
 
-    // Assert that the deserialized data is correct.
     assert_eq!(
       config.milestone_contracts_by_tier.len(),
       3,
       "Should have 3 tiers in the map"
     );
 
-    // Check the contents for tier 5 specifically.
     let tier_5_contracts = config.milestone_contracts_by_tier.get(&5).expect("Tier 5 should exist");
     assert_eq!(tier_5_contracts.len(), 2, "Tier 5 should have two contracts");
     assert_eq!(tier_5_contracts[0], "milestone_first_successful_derivative");
     assert_eq!(tier_5_contracts[1], "milestone_unlock_first_foreign_exchange");
 
-    // Check the contents for tier 10.
     let tier_10_contracts = config
       .milestone_contracts_by_tier
       .get(&10)
@@ -1769,7 +1668,6 @@ milestones:
 
     init_logger();
 
-    // --- 1. Set up environment variables for all test cases ---
     // We use `std::env::set_var` inside a `serial_test` to avoid race conditions.
 
     unsafe {
@@ -1792,15 +1690,11 @@ milestones:
       std::env::set_var("C5_RECON__EVENT_HANDLERS#map__2", "on_shutdown");
     }
 
-    // --- 2. Initialize C5Store from environment variables only ---
     // We pass an empty Vec of paths to only load from the environment.
     let (c5store, _c5store_mgr) = create_c5store(vec![], None).expect("Test store creation from env failed");
 
-    // --- 3. Perform Deserialization ---
-    // We deserialize from the "recon" prefix.
     let result = c5store.get_into_struct::<ReconstructionTestConfig>("recon");
 
-    // --- 4. Clean up environment variables immediately ---
     // This ensures other tests aren't affected.
     unsafe {
       std::env::remove_var("C5_RECON__SERVERS__0");
@@ -1814,7 +1708,6 @@ milestones:
       std::env::remove_var("C5_RECON__EVENT_HANDLERS#map__2");
     }
 
-    // --- 5. Assertions ---
     assert!(
       result.is_ok(),
       "Failed to deserialize the comprehensive reconstruction config. Error: {:?}",
@@ -1861,11 +1754,9 @@ milestones:
 
     init_logger();
 
-    // --- 1. Create a temporary directory for our config files ---
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let base_path = temp_dir.path();
 
-    // --- 2. Prepare the data file with the reconstruction cases ---
     // This file will be loaded by the provider. Note the "eventHandlers#map" key.
     let data_yaml_content = r#"
 servers:
@@ -1898,7 +1789,6 @@ milestoneContractsByTier:
     let mut data_file = File::create(&data_file_path).unwrap();
     write!(data_file, "{}", data_yaml_content).unwrap();
 
-    // --- 3. Prepare the main config file that sets up the provider ---
     let main_config_content = r#"
 recon:
   .provider: "resources"
@@ -1909,17 +1799,14 @@ recon:
     let mut main_config_file = File::create(&main_config_path).unwrap();
     write!(main_config_file, "{}", main_config_content).unwrap();
 
-    // --- 4. Initialize C5Store and the Provider ---
     let (c5store, mut c5store_mgr) = create_c5store(vec![main_config_path], None).expect("Test store creation failed");
 
-    // Register the provider, using the temp directory as its base path.
     c5store_mgr.set_value_provider(
       "resources",
       C5FileValueProvider::default(base_path.to_str().unwrap()),
       0, // No recurring refresh
     );
 
-    // --- 5. Perform Deserialization and Assertions ---
     let result = c5store.get_into_struct::<ReconstructionTestConfig>("recon");
 
     assert!(
@@ -1995,12 +1882,9 @@ recon:
 
     init_logger();
 
-    // --- 1. Create a controlled temporary directory for all test files ---
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let base_path = temp_dir.path();
 
-    // --- 2. Prepare the data file with the requested structure but new values ---
-    // This file contains the actual data to be loaded by the provider.
     let product_data_content = r#"
 catalogs:
   "general_goods":
@@ -2020,8 +1904,6 @@ catalogs:
     let mut data_file = File::create(&data_file_path).unwrap();
     write!(data_file, "{}", product_data_content).unwrap();
 
-    // --- 3. Prepare the main config file to set up the provider ---
-    // This tells the store where to place the data loaded by the provider.
     let main_config_content = r#"
 game_content:
   .provider: "catalog_resources"
@@ -2034,12 +1916,11 @@ game_content:
 
     // --- 4. Initialize C5Store and the Provider ---
     let (c5store, mut c5store_mgr) = create_c5store(
-      vec![main_config_path], // Load from the main config
+      vec![main_config_path],
       None,
     )
     .expect("Test store creation failed");
 
-    // Register the provider, using the temp directory as its base path.
     // The name "catalog_resources" must match the `.provider` value in the YAML.
     c5store_mgr.set_value_provider(
       "catalog_resources",
@@ -2047,8 +1928,6 @@ game_content:
       0, // No recurring refresh
     );
 
-    // --- 5. Perform Deserialization and Assertions ---
-    // The key is "game_content", which is where the provider placed the data.
     let result = c5store.get_into_struct::<CatalogConfig>("game_content");
 
     assert!(
@@ -2059,17 +1938,14 @@ game_content:
 
     let config = result.unwrap();
 
-    // Assert that the top-level map and the "general_goods" catalog were loaded.
     assert_eq!(config.catalogs.len(), 1, "Should have loaded one catalog category");
     let general_goods = config
       .catalogs
       .get("general_goods")
       .expect("`general_goods` catalog should exist");
 
-    // Assert that the listings within the catalog were loaded.
     assert_eq!(general_goods.listings.len(), 2, "Should have two listings");
 
-    // Assert the contents of the "starter_pack"
     let starter_pack = general_goods
       .listings
       .get("dev.c5store.test_bundle.starter_pack")
@@ -2080,7 +1956,6 @@ game_content:
     assert_eq!(starter_pack_item.data.item_id, "starter_pack_main");
     assert_eq!(starter_pack_item.data.quantity, 5);
 
-    // Assert the contents of the "currency" listing
     let currency = general_goods
       .listings
       .get("dev.c5store.currency.100_gems")

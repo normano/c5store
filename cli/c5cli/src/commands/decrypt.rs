@@ -5,8 +5,8 @@ use c5_core::{
 };
 use clap::Args;
 use std::fs;
-use std::io::{self, Write as IoWrite}; // For writing to stdout
-use std::path::PathBuf; // For checking if stdout is a TTY
+use std::io::{self, Write as IoWrite};
+use std::path::PathBuf;
 
 use crate::{
   CliCryptoAlgorithm,
@@ -74,7 +74,6 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
   };
   let yaml_doc_root = load_yaml_from_string(&yaml_str)?;
 
-  // --- NEW: ADVANCED PATH TRAVERSAL FOR DECRYPTION ---
   let segments = parse_path(&args.key_path)?;
   let mut current_node = &yaml_doc_root;
 
@@ -104,7 +103,6 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
                 ))
               })?
             } else {
-              // Neither found
               return Err(C5CoreError::YamlNavigation(format!(
                 "Key '{}' not found (at path trace: {}).",
                 key,
@@ -241,31 +239,23 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
   if args.to_stdout {
     eprintln!("[Warning] Outputting decrypted content to stdout. Ensure this is a secure terminal.");
 
-    // Attempt to interpret as UTF-8 based on the --output-encoding flag.
-    // For simplicity, this example directly checks for utf-8.
-    // A more robust solution for various text encodings would use a crate like `encoding_rs`.
     let output_encoding_lower = args.output_encoding.to_lowercase();
     if output_encoding_lower == "utf-8" || output_encoding_lower == "utf8" {
       match String::from_utf8(decrypted_bytes.clone()) {
         Ok(s) => {
-          print!("{}", s); // Print string without an extra newline from print!
-          // print! itself doesn't add a newline.
+          print!("{}", s);
         }
         Err(_) => {
-          // If UTF-8 decoding fails, it's likely binary or wrong encoding.
-          // Print a more specific warning and then output raw bytes.
           eprintln!("[Warning] Decrypted data is not valid UTF-8. Outputting raw bytes.");
-          io::stdout().write_all(&decrypted_bytes)?; // Write raw bytes
+          io::stdout().write_all(&decrypted_bytes)?;
         }
       }
     } else {
-      // If encoding is not UTF-8, treat as binary for stdout for now.
-      // Proper handling of other text encodings would require specific decoding.
       eprintln!(
         "[Info] Output encoding is '{}'. Outputting raw bytes to stdout.",
         args.output_encoding
       );
-      io::stdout().write_all(&decrypted_bytes)?; // Write raw bytes
+      io::stdout().write_all(&decrypted_bytes)?;
     }
 
     // Add a newline only if stdout is a TTY, for better shell prompt integration after output.
@@ -281,7 +271,6 @@ pub fn handle_decrypt(args: DecryptArgs) -> Result<(), C5CoreError> {
         fs::create_dir_all(parent)?;
       }
     }
-    // write_bytes_to_file handles the force_overwrite logic and writes raw bytes.
     // The --output-encoding flag is primarily for how to *interpret* the bytes
     // if they were text, not how to write them if they are already bytes.
     write_bytes_to_file(output_path, &decrypted_bytes, args.force)?;

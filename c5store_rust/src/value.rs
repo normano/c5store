@@ -4,7 +4,6 @@ use std::convert::TryInto;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-// Assuming ConfigError is accessible, e.g., via `crate::ConfigError` or `use crate::ConfigError;`
 use crate::ConfigError;
 
 // Macro for basic TryInto implementation (non-numeric primitives, collections)
@@ -31,15 +30,12 @@ macro_rules! try_into_impl_basic {
       }
     }
 
-    // Implementation for converting from a reference (&C5DataValue)
     impl TryInto<$target_type> for &C5DataValue {
       type Error = ConfigError;
 
       #[inline]
       fn try_into(self) -> Result<$target_type, Self::Error> {
         match self {
-          // For owned types like String, Vec, HashMap, we need to clone.
-          // For Copy types (like bool, numbers), cloning is cheap/implicit.
           C5DataValue::$c5_variant(inner_value) => Ok(inner_value.clone()),
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
@@ -74,7 +70,7 @@ macro_rules! try_into_impl_basic {
       #[inline]
       fn try_into(self) -> Result<$target_type, Self::Error> {
         match self {
-          C5DataValue::$c5_variant(inner_value) => Ok(*inner_value), // Direct deref for Copy types
+          C5DataValue::$c5_variant(inner_value) => Ok(*inner_value),
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
             expected_type: $expected_type_str,
@@ -99,9 +95,6 @@ macro_rules! try_into_impl_numeric_cast {
       #[inline]
       fn try_into(self) -> Result<$target_type, Self::Error> {
         match self {
-          // Direct cast - Rust handles range checks for float->int, etc.
-          // but we rely on the source type matching mostly.
-          // More robust range checks could be added if needed.
           C5DataValue::$c5_variant(inner_value) => Ok(inner_value as $target_type),
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
@@ -130,7 +123,6 @@ macro_rules! try_into_impl_numeric_cast {
   };
 }
 
-// Macro to implement From<primitive> for C5DataValue
 macro_rules! from_impl_numeric {
   ($from_type:ty, $c5_variant:ident, $cast_type:ty) => {
     impl From<$from_type> for C5DataValue {
@@ -142,7 +134,6 @@ macro_rules! from_impl_numeric {
   };
 }
 
-// Macro for Vec<T> TryInto conversion
 macro_rules! try_into_impl_vec {
   ($target_element_type:ty) => {
     impl TryInto<Vec<$target_element_type>> for C5DataValue {
@@ -152,8 +143,8 @@ macro_rules! try_into_impl_vec {
         match self {
           C5DataValue::Array(inner_value) => inner_value
             .into_iter()
-            .map(|vec_item| vec_item.try_into()) // Each element conversion can fail
-            .collect::<Result<Vec<$target_element_type>, ConfigError>>(), // Collect results
+            .map(|vec_item| vec_item.try_into())
+            .collect::<Result<Vec<$target_element_type>, ConfigError>>(),
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
             expected_type: "Array",
@@ -168,10 +159,9 @@ macro_rules! try_into_impl_vec {
 
       fn try_into(self) -> Result<Vec<$target_element_type>, Self::Error> {
         match self {
-          // Note: .into_iter() on a slice iterates over references
           C5DataValue::Array(inner_value) => inner_value
-            .iter() // Iterate over references
-            .map(|vec_item_ref| vec_item_ref.try_into()) // TryInto<&C5DataValue> for T
+            .iter()
+            .map(|vec_item_ref| vec_item_ref.try_into())
             .collect::<Result<Vec<$target_element_type>, ConfigError>>(),
           other => Err(ConfigError::TypeMismatch {
             key: "_conversion_".to_string(),
@@ -215,8 +205,6 @@ impl C5DataValue {
     }
   }
 
-  // Helper method for converting value to bytes - useful internally?
-  // Keep this internal or remove if not strictly needed by public API consumers
   pub(crate) fn as_bytes(&self) -> Option<Vec<u8>> {
     match self {
       C5DataValue::String(value) => Some(value.as_bytes().to_vec()),
@@ -299,7 +287,6 @@ impl From<HashMap<String, C5DataValue>> for C5DataValue {
   }
 }
 
-// From impls for smaller numeric types using macro
 from_impl_numeric!(i8, Integer, i64);
 from_impl_numeric!(i16, Integer, i64);
 from_impl_numeric!(i32, Integer, i64);
@@ -312,7 +299,6 @@ from_impl_numeric!(f32, Float, f64);
 
 // --- TryInto Implementations ---
 
-// TryInto<()>
 impl TryInto<()> for C5DataValue {
   type Error = ConfigError;
   #[inline]
@@ -342,13 +328,10 @@ impl TryInto<()> for &C5DataValue {
   }
 }
 
-// TryInto<Vec<u8>> using macro
 try_into_impl_basic!(Vec<u8>, Bytes, "Bytes");
 
-// TryInto<bool> using macro (with Copy optimization)
 try_into_impl_basic!(bool, Boolean, "Boolean", Copy);
 
-// TryInto<String> using macro
 impl TryInto<String> for C5DataValue {
   type Error = ConfigError;
 
@@ -357,7 +340,7 @@ impl TryInto<String> for C5DataValue {
     match self {
       C5DataValue::String(s) => Ok(s),
       C5DataValue::Bytes(b) => String::from_utf8(b).map_err(|e| ConfigError::ConversionError {
-        key: "_conversion_".to_string(), // Key context isn't available here
+        key: "_conversion_".to_string(),
         message: format!("decrypted bytes are not valid UTF-8: {}", e),
       }),
       other => Err(ConfigError::TypeMismatch {
@@ -375,7 +358,7 @@ impl TryInto<String> for &C5DataValue {
   #[inline]
   fn try_into(self) -> Result<String, Self::Error> {
     match self {
-      C5DataValue::String(s) => Ok(s.clone()), // Must clone from a reference
+      C5DataValue::String(s) => Ok(s.clone()),
       C5DataValue::Bytes(b) => {
         String::from_utf8(b.clone()).map_err(|e| ConfigError::ConversionError {
           key: "_conversion_".to_string(),
@@ -391,7 +374,6 @@ impl TryInto<String> for &C5DataValue {
   }
 }
 
-// TryInto<Box<str>>
 impl TryInto<Box<str>> for C5DataValue {
   type Error = ConfigError;
   #[inline]
@@ -523,10 +505,8 @@ impl TryInto<u64> for &C5DataValue {
   }
 }
 
-// TryInto<f64> using macro (Copy type)
 try_into_impl_basic!(f64, Float, "Float", Copy);
 
-// TryInto for smaller integer types using casting macro
 // Note: These only check the C5 type, not the range. A C5DataValue::Integer(1000)
 // could be cast to i8 resulting in overflow if not careful. More robust checks
 // could be added using try_into() on the number itself if strictness is required.
@@ -539,15 +519,12 @@ try_into_impl_numeric_cast!(u16, UInteger, "UInteger");
 try_into_impl_numeric_cast!(u32, UInteger, "UInteger");
 try_into_impl_numeric_cast!(usize, UInteger, "UInteger");
 
-// TryInto for smaller float types
 try_into_impl_numeric_cast!(f32, Float, "Float");
 
 // --- Collection TryInto Implementations ---
 
-// TryInto<Vec<C5DataValue>> using macro
 try_into_impl_basic!(Vec<C5DataValue>, Array, "Array");
 
-// TryInto<HashMap<String, C5DataValue>> using macro
 try_into_impl_basic!(HashMap<String, C5DataValue>, Map, "Map");
 
 // --- Vec<T> TryInto Implementations using macro ---
@@ -558,7 +535,6 @@ try_into_impl_vec!(Box<str>);
 try_into_impl_vec!(i64);
 try_into_impl_vec!(u64);
 try_into_impl_vec!(f64);
-// Add others like i32, u32 etc. if needed
 try_into_impl_vec!(i32);
 try_into_impl_vec!(u32);
 try_into_impl_vec!(f32);
@@ -570,9 +546,9 @@ pub(crate) fn c5_value_to_serde_json(
     C5DataValue::Null => Ok(serde_json::Value::Null),
     C5DataValue::Bytes(b) => Ok(serde_json::Value::String(
       base64::engine::general_purpose::STANDARD.encode(&b),
-    )), // Represent bytes as base64 string
+    )),
     C5DataValue::Boolean(b) => Ok(serde_json::Value::Bool(b)),
-    C5DataValue::Integer(i) => Ok(serde_json::json!(i)), // Use json! macro for numbers
+    C5DataValue::Integer(i) => Ok(serde_json::json!(i)),
     C5DataValue::UInteger(u) => Ok(serde_json::json!(u)),
     C5DataValue::Float(f) => Ok(serde_json::json!(f)),
     C5DataValue::String(s) => Ok(serde_json::Value::String(s)),

@@ -8,7 +8,7 @@ pub fn load_yaml_from_string(yaml_str: &str) -> Result<Yaml, C5CoreError> {
   let docs = YamlLoader::load_from_str(yaml_str)
     .map_err(|e| C5CoreError::YamlDeserialize(format!("YAML loading failed: {:?}", e)))?;
   if docs.is_empty() {
-    Ok(Yaml::Hash(YamlHash::new())) // Return empty map for empty input
+    Ok(Yaml::Hash(YamlHash::new()))
   } else {
     Ok(docs[0].clone()) // Take the first document
   }
@@ -73,15 +73,14 @@ pub fn get_yaml_value_at_path<'a>(root: &'a Yaml, path_str: &str) -> Option<&'a 
         }
       }
       Yaml::Array(arr) => {
-        // Try to parse the segment as a usize index
         if let Ok(index) = part_str.parse::<usize>() {
           if index < arr.len() {
             current = &arr[index];
           } else {
-            return None; // Index out of bounds
+            return None;
           }
         } else {
-          return None; // Cannot use non-integer key on Array
+          return None;
         }
       }
       _ => return None, // Scalar or Null cannot be traversed
@@ -92,7 +91,6 @@ pub fn get_yaml_value_at_path<'a>(root: &'a Yaml, path_str: &str) -> Option<&'a 
 
 // --- Set Logic ---
 
-// Helper to get type name as string for Yaml
 fn yaml_type_name(y: &Yaml) -> &'static str {
   match y {
     Yaml::String(_) => "String",
@@ -142,12 +140,10 @@ pub fn set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yam
           map.insert(key_yaml, value_to_set);
           return Ok(());
         } else {
-          // Descend or create next Null slot
           current_node = map.entry(key_yaml).or_insert(Yaml::Null);
         }
       }
       Yaml::Array(arr) => {
-        // Parse index
         let idx = part_str.parse::<usize>().map_err(|_| {
           C5CoreError::YamlNavigation(format!(
             "Cannot navigate into Array with non-integer key '{}'. Path: {}",
@@ -155,7 +151,6 @@ pub fn set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yam
           ))
         })?;
 
-        // Strict Bounds Checking
         if idx > arr.len() {
           return Err(C5CoreError::YamlNavigation(format!(
             "Index {} out of bounds (len is {}). Sparse arrays are not supported. Path: {}",
@@ -167,17 +162,13 @@ pub fn set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yam
 
         if is_last {
           if idx == arr.len() {
-            // Append
             arr.push(value_to_set);
           } else {
-            // Overwrite
             arr[idx] = value_to_set;
           }
           return Ok(());
         } else {
-          // Traversal
           if idx == arr.len() {
-            // Cannot descend into a slot that doesn't exist yet
             return Err(C5CoreError::YamlNavigation(format!(
               "Cannot traverse into index {} because it does not exist yet. Path: {}",
               idx, path_str
@@ -187,7 +178,6 @@ pub fn set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yam
         }
       }
       _ => {
-        // Scalar conflict
         let err_path_context = if i > 0 {
           parts[..i].join(".")
         } else {
@@ -233,19 +223,16 @@ mod tests {
     let reloaded_doc = load_yaml_from_string(&dumped_str)?;
     assert_eq!(doc, reloaded_doc);
 
-    // Test empty string input
     let empty_doc = load_yaml_from_string("")?;
-    assert_eq!(empty_doc, Yaml::Hash(Hash::new())); // Expect an empty map
+    assert_eq!(empty_doc, Yaml::Hash(Hash::new()));
 
-    // Test loading and dumping Yaml::Null
     let null_doc_loaded = load_yaml_from_string("null")?; // Parses "null" string to Yaml::Null
     assert_eq!(null_doc_loaded, Yaml::Null);
 
-    let dumped_yaml_null = dump_yaml_to_string(&Yaml::Null)?; // Dump Yaml::Null directly
+    let dumped_yaml_null = dump_yaml_to_string(&Yaml::Null)?;
     let reloaded_dumped_null = load_yaml_from_string(&dumped_yaml_null)?;
-    assert_eq!(reloaded_dumped_null, Yaml::Null); // Check if it reloads as Yaml::Null
+    assert_eq!(reloaded_dumped_null, Yaml::Null);
 
-    // Test invalid YAML parsing
     let invalid_yaml = "key: [unclosed array";
     let load_result_invalid = load_yaml_from_string(invalid_yaml);
     assert!(matches!(load_result_invalid, Err(C5CoreError::YamlDeserialize(_))));
@@ -262,22 +249,18 @@ mod tests {
     root_map.insert(make_string("level1_map"), Yaml::Hash(nested_map));
     let root = Yaml::Hash(root_map);
 
-    // Get scalar
     assert_eq!(
       get_yaml_value_at_path(&root, "level1_scalar"),
       Some(&make_string("scalar_value"))
     );
-    // Get nested scalar
     assert_eq!(
       get_yaml_value_at_path(&root, "level1_map.level2_key"),
       Some(&make_string("level2_value"))
     );
-    // Get nested map
     assert!(matches!(
       get_yaml_value_at_path(&root, "level1_map"),
       Some(Yaml::Hash(_))
     ));
-    // Get root itself
     assert_eq!(get_yaml_value_at_path(&root, ""), Some(&root));
 
     // Non-existent paths
@@ -338,7 +321,7 @@ mod tests {
     ));
 
     // 7. Set on a path where intermediate is Null, should turn to map
-    let mut root7 = make_map(); // root7 is Yaml::Hash(empty_map)
+    let mut root7 = make_map();
                                 // To insert into root7, we need to match to get its &mut Hash
     match &mut root7 {
       Yaml::Hash(map) => {
@@ -351,7 +334,6 @@ mod tests {
     // This call should turn "a": Yaml::Null into "a": Yaml::Hash({"b": Yaml::String("worked")})
     set_yaml_value_at_path(&mut root7, "a.b", make_string("worked"))?;
     assert_eq!(get_yaml_value_at_path(&root7, "a.b"), Some(&make_string("worked")));
-    // Also check that "a" is now a map
     match get_yaml_value_at_path(&root7, "a") {
       Some(Yaml::Hash(_)) => { /* good */ }
       other => panic!("Expected 'a' to be a Hash, got {:?}", other),
@@ -410,7 +392,6 @@ mod tests {
     // Setting "0" on Null should create a Hash, NOT an Array
     set_yaml_value_at_path(&mut root, "items.0", make_string("val"))?;
 
-    // Verify items is a Hash
     match root {
       Yaml::Hash(m) => {
         let items = m.get(&make_string("items")).unwrap();

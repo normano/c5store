@@ -68,17 +68,15 @@ pub fn handle_generate_keypair(args: GenerateKeypairArgs) -> Result<(), C5CoreEr
     args.output_name_prefix, args.algo
   );
 
-  let core_algo = args.algo.into(); // Convert CLI enum to c5_core enum
+  let core_algo = args.algo.into();
   let mut rng = StdRng::from_os_rng();
 
   let key_pair = core_gen_c5_kp(core_algo, &mut rng)?;
 
-  // Ensure output directory exists
   if !args.output_dir.exists() {
-    std::fs::create_dir_all(&args.output_dir)?; // Create if not exists, propagate IO error
+    std::fs::create_dir_all(&args.output_dir)?;
   }
 
-  // Define output file paths
   // Suggested naming: PREFIX.c5.pub.pem and PREFIX.c5.key.pem
   let pub_key_filename = format!("{}.c5.pub.pem", args.output_name_prefix);
   let priv_key_filename = format!("{}.c5.key.pem", args.output_name_prefix);
@@ -86,16 +84,11 @@ pub fn handle_generate_keypair(args: GenerateKeypairArgs) -> Result<(), C5CoreEr
   let pub_key_path = args.output_dir.join(pub_key_filename);
   let priv_key_path = args.output_dir.join(priv_key_filename);
 
-  // Write public key
   io_utils::write_string_to_file(&pub_key_path, &key_pair.public.0, args.force)?;
   println!("Public key saved to: {:?}", pub_key_path);
 
-  // Write private key
   io_utils::write_string_to_file(&priv_key_path, &key_pair.private.0, args.force)?;
   println!("Private key saved to: {:?}", priv_key_path);
-  // TODO: Set restrictive permissions on the private key file (e.g., 0600 on Unix)
-  // This requires platform-specific code or a crate like `fs_set_permissions`.
-  // For now, we'll skip this, but it's an important production consideration.
   #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;
@@ -128,7 +121,6 @@ pub fn handle_generate_ssh_keys(args: GenerateSshKeysArgs) -> Result<(), C5CoreE
     println!("SSH Public Key (OpenSSH format):");
     println!("{}", ssh_key_pair.public_key_openssh_format);
   } else {
-    // Ensure output directory exists
     if !args.output_dir.exists() {
       std::fs::create_dir_all(&args.output_dir)?;
     }
@@ -137,7 +129,6 @@ pub fn handle_generate_ssh_keys(args: GenerateSshKeysArgs) -> Result<(), C5CoreE
     let priv_key_path = args.output_dir.join(&args.output_name_prefix);
     let pub_key_path = args.output_dir.join(format!("{}.pub", args.output_name_prefix));
 
-    // Write private key
     io_utils::write_string_to_file(&priv_key_path, &ssh_key_pair.private_key_pem.0, args.force)?;
     println!("SSH Private key saved to: {:?}", priv_key_path);
     #[cfg(unix)]
@@ -155,7 +146,6 @@ pub fn handle_generate_ssh_keys(args: GenerateSshKeysArgs) -> Result<(), C5CoreE
       }
     }
 
-    // Write public key (OpenSSH format)
     io_utils::write_string_to_file(&pub_key_path, &ssh_key_pair.public_key_openssh_format, args.force)?;
     println!("SSH Public key saved to: {:?}", pub_key_path);
 

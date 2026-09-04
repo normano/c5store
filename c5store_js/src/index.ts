@@ -331,13 +331,6 @@ export async function createC5Store(
 
   const changeNotify = (key: string) => {
 
-    // Split key into parts then notify up the tree if any listeners
-
-    // Batch and Dedup: If keys in the same ancestors are being updated, then send only one update for the
-    // ancestors.
-    // Can use a timer of maybe 2 seconds and reset it everytime a change notify comes in until
-    // the 2 seconds is elapsed then perform change notifications.
-
     changedKeyPaths.add(key);
 
     if(changeTimer == null) {

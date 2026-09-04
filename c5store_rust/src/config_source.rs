@@ -3,11 +3,11 @@ use std::{fmt, path::PathBuf};
 /// Represents the origin of a configuration value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigSource {
-  File(PathBuf),              // Source file path
+  File(PathBuf),
   EnvironmentVariable(String), // Name of the environment variable (e.g., "C5_DB__HOST")
-  Provider(String),           // Name of the provider
-  SetProgrammatically,        // Value set via a direct API call (future)
-  Unknown,                    // Default or fallback
+  Provider(String),
+  SetProgrammatically,
+  Unknown,
 }
 
 impl fmt::Display for ConfigSource {

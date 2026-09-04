@@ -36,7 +36,6 @@ fn test_encrypt_numeric_key_start() -> Result<(), Box<dyn std::error::Error>> {
 
   let config_path = config_dir.join("numeric.yaml");
 
-  // Create a YAML with an integer key
   // YAML parsers treat unquoted numbers as Integers.
   let yaml_content = "dataEncryptionKeys:\n  1: old_value\n";
   fs::write(&config_path, yaml_content)?;
@@ -59,7 +58,6 @@ fn test_encrypt_numeric_key_start() -> Result<(), Box<dyn std::error::Error>> {
 
   cmd_enc.assert().success();
 
-  // Verify file structure
   let content = fs::read_to_string(&config_path)?;
   // We expect the key '1' to now be a map containing the secret
   assert!(content.contains("1:"));

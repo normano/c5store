@@ -137,10 +137,10 @@ pub(crate) fn map_from_serde_yaml_valuemap(
 pub fn toml_value_to_c5_value(toml_value: toml::Value) -> C5DataValue {
   match toml_value {
     toml::Value::String(s) => C5DataValue::String(s),
-    toml::Value::Integer(i) => C5DataValue::Integer(i), // TOML Integer is i64
-    toml::Value::Float(f) => C5DataValue::Float(f),     // TOML Float is f64
+    toml::Value::Integer(i) => C5DataValue::Integer(i),
+    toml::Value::Float(f) => C5DataValue::Float(f),
     toml::Value::Boolean(b) => C5DataValue::Boolean(b),
-    toml::Value::Datetime(dt) => C5DataValue::String(dt.to_string()), // Represent datetime as string
+    toml::Value::Datetime(dt) => C5DataValue::String(dt.to_string()),
     toml::Value::Array(arr) => C5DataValue::Array(arr.into_iter().map(toml_value_to_c5_value).collect()),
     toml::Value::Table(table) => C5DataValue::Map(map_from_toml_value_map(table.into_iter().collect())),
   }

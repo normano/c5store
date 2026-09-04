@@ -1,12 +1,12 @@
 use crate::error::C5CoreError;
-use crate::keys::CryptoAlgorithm; // Assuming this enum is in c5_core::keys
+use crate::keys::CryptoAlgorithm;
 use std::path::Path;
 use yaml_rust2::Yaml;
 
 /// Represents the parts of a c5store secret array.
 #[derive(Debug, PartialEq, Eq)]
 pub struct C5SecretValueParts {
-  pub algo_str: String, // Algorithm as a string
+  pub algo_str: String,
   pub key_name: String,
   pub b64_ciphertext: String,
 }
@@ -22,7 +22,6 @@ fn derive_key_name_from_filename(public_key_file_name: &str) -> String {
     .and_then(|s| s.to_str())
     .unwrap_or(public_key_file_name);
 
-  // If it ends with ".pub", remove that common suffix for public keys
   if let Some(stripped) = stem.strip_suffix(".pub") {
     stripped.to_string()
   } else {
@@ -37,7 +36,6 @@ pub fn format_c5_secret_array(
   public_key_file_name: &str,
   b64_ciphertext: String,
 ) -> Result<Yaml, C5CoreError> {
-  // <<<< Return yaml_rust2::Yaml
   let algo_str = match algo {
     CryptoAlgorithm::EciesX25519 => "ecies_x25519".to_string(),
   };
@@ -49,17 +47,16 @@ pub fn format_c5_secret_array(
     Yaml::String(key_name),
     Yaml::String(b64_ciphertext),
   ];
-  Ok(Yaml::Array(secret_array_vec)) // Construct Yaml::Array
+  Ok(Yaml::Array(secret_array_vec))
 }
 
 /// Parses a `yaml_rust2::Yaml` (expected to be a c5store secret array)
 /// into its constituent parts.
 pub fn parse_c5_secret_array(
-  secret_yaml_value: &Yaml, // <<<< Accept yaml_rust2::Yaml
+  secret_yaml_value: &Yaml,
 ) -> Result<C5SecretValueParts, C5CoreError> {
   match secret_yaml_value {
     Yaml::Array(seq) => {
-      // Match on Yaml::Array
       if seq.len() == 3 {
         let algo_str = seq[0].as_str().ok_or_else(|| {
           C5CoreError::YamlNavigation("First element of secret array (algorithm) is not a string.".to_string())
@@ -84,7 +81,6 @@ pub fn parse_c5_secret_array(
       }
     }
     _ => Err(C5CoreError::YamlNavigation(
-      // Match any other Yaml variant
       "Expected secret value to be a YAML Array.".to_string(),
     )),
   }
@@ -95,7 +91,6 @@ mod tests {
   use super::*;
   use crate::keys::CryptoAlgorithm;
 
-  // ... (derive_key_name_from_filename test remains the same) ...
   #[test]
   fn test_derive_key_name() {
     assert_eq!(derive_key_name_from_filename("mykey.pub.pem"), "mykey");
@@ -113,15 +108,14 @@ mod tests {
 
     let formatted_value = format_c5_secret_array(algo, pk_filename, ciphertext.clone()).unwrap();
 
-    assert!(matches!(formatted_value, Yaml::Array(_))); // Check it's a Yaml::Array
+    assert!(matches!(formatted_value, Yaml::Array(_)));
     if let Yaml::Array(seq) = formatted_value {
-      // Destructure to get the Vec<Yaml>
       assert_eq!(seq.len(), 3);
       assert_eq!(seq[0].as_str().unwrap(), "ecies_x25519");
       assert_eq!(seq[1].as_str().unwrap(), "service.prod");
-      assert_eq!(seq[2].as_str().unwrap(), &ciphertext); // Compare with &str
+      assert_eq!(seq[2].as_str().unwrap(), &ciphertext);
 
-      let parsed_parts = parse_c5_secret_array(&Yaml::Array(seq)).unwrap(); // Re-wrap for parsing
+      let parsed_parts = parse_c5_secret_array(&Yaml::Array(seq)).unwrap();
       assert_eq!(
         parsed_parts,
         C5SecretValueParts {
@@ -148,7 +142,7 @@ mod tests {
     // Non-string element
     let val_non_string = Yaml::Array(vec![
       Yaml::String("algo".into()),
-      Yaml::Integer(123.into()), // Yaml::Integer, not a string
+      Yaml::Integer(123.into()),
       Yaml::String("cipher".into()),
     ]);
     assert!(parse_c5_secret_array(&val_non_string).is_err());

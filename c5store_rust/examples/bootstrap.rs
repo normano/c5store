@@ -1,13 +1,10 @@
-// examples/bootstrap_example.rs
-
-use c5store::bootstrapper; // Assuming bootstrapper.rs is in the same crate's src/
+use c5store::bootstrapper;
 use bootstrapper::{BootstrapError, BootstrapItem, ConfigBootstrapper, GitHost};
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-// Helper to determine the target config directory for the example.
 fn get_example_target_dir() -> Result<PathBuf, std::io::Error> {
   let current_dir = env::current_dir()?;
   let example_dir = current_dir.join("example_bootstrap_output");
@@ -32,10 +29,9 @@ async fn main() {
   };
   println!("Output will be in: {:?}", example_target_dir);
 
-  // --- Define the default Git repository for configs ---
   let default_config_repo_web_url = "https://github.com/normano/c5store";
 
-  let default_git_ref = "main"; // jq uses master
+  let default_git_ref = "main";
 
   // --- Create a local file for testing ConfigSource::Local ---
   let local_source_base = env::current_dir().expect("Failed to get current dir for local source base");
@@ -110,7 +106,6 @@ async fn main() {
     println!("Found: {:?}", entry.file_name());
   }
 
-  // Clean up the local test file
   if fs::remove_file(&local_file_path_for_source).is_err() {
     // ignore
   };

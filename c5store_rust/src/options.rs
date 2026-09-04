@@ -80,7 +80,7 @@ pub struct C5StoreOptions {
   /// The case style to use for environment variable keys. Defaults to `Case::Camel`.
   pub env_case: Case,
   #[cfg(feature = "dotenv")]
-  pub dotenv_path: Option<PathBuf>, // Path to .env file
+  pub dotenv_path: Option<PathBuf>,
 }
 
 impl Default for C5StoreOptions {
@@ -90,14 +90,14 @@ impl Default for C5StoreOptions {
       stats: None,
       change_delay_period: Some(DEFAULT_CHANGE_DELAY_PERIOD),
       secret_opts: SecretOptions::default(),
-      env_case: Case::Camel, // New default for better serde interop
+      env_case: Case::Camel,
       #[cfg(feature = "dotenv")]
       dotenv_path: None,
     };
   }
 }
 
-// Reads configuration from specified paths (files/directories), merges them,
+/// Reads configuration from specified paths (files/directories), merges them,
 /// applies environment variable overrides, separates provider configurations,
 /// and applies the final values to the store via the provided setter function.
 ///
@@ -143,7 +143,6 @@ pub(crate) fn read_config_data(
         path
       );
     } else {
-      // Only warn if it *doesn't* exist
       debug!("[Config] Info: Optional config path {:?} not found.", path);
     }
   }
@@ -178,7 +177,6 @@ pub(crate) fn read_config_data(
         Ok(content) => {
           match parse_fn(&content, file_path) {
             Ok(mut config_from_file) => {
-              // Make mutable
               debug!("[Config] Processing config from file {:?}", file_path);
 
               // Track file source for top-level keys BEFORE extraction/merging
@@ -186,11 +184,9 @@ pub(crate) fn read_config_data(
                 file_source_map.insert(key.clone(), file_path.clone());
               }
 
-              // --- >>> Extract Provider Configs from this file's data <<< ---
               // Note: This modifies config_from_file IN PLACE, removing provider sections
               _take_provided_data(&mut config_from_file, provided_data);
 
-              // Merge remaining non-provider file data into the main nested accumulator
               _merge(&mut file_config_merged, &config_from_file);
             }
             Err(e) => return Err(e),
@@ -221,7 +217,6 @@ pub(crate) fn read_config_data(
     if env_key_name.starts_with(PREFIX) {
       let trimmed_key = env_key_name.trim_start_matches(PREFIX);
 
-      // New logic: Split by path separator, convert case for each part, then join.
       let c5_key = trimmed_key
         .split(SEPARATOR)
         .map(|part| convert_case(part, env_case))
@@ -238,12 +233,10 @@ pub(crate) fn read_config_data(
 
       debug!("[Config] Processing env var '{}' for key '{}'", env_key_name, c5_key);
 
-      // Store flat source info immediately
       env_source_flat_map.insert(c5_key.clone(), ConfigSource::EnvironmentVariable(env_key_name.clone()));
 
-      // Use helper to merge this env var into the nested structure (`file_config_merged`)
       if let Err(e) = merge_env_var_nested(&mut file_config_merged, &c5_key, &value_str) {
-        return Err(e); // Propagate conflict errors
+        return Err(e);
       }
     }
   }
@@ -258,60 +251,47 @@ pub(crate) fn read_config_data(
   for (key, value) in final_flat_map {
     // Determine source: Check env source map first, then file source map
     let final_source = match env_source_flat_map.get(&key) {
-      Some(env_source) => env_source.clone(), // Env var took precedence
+      Some(env_source) => env_source.clone(),
       None => {
-        // Must have come from a file
         let top_level_key = key.split('.').next().unwrap_or(&key);
         file_source_map
           .get(top_level_key)
           .map(|path| ConfigSource::File(path.clone()))
-          .unwrap_or(ConfigSource::Unknown) // Fallback
+          .unwrap_or(ConfigSource::Unknown)
       }
     };
-    // Set the flattened key-value pair in the actual data store
     data_store._set_data_internal(&key, value, final_source);
   }
 
   Ok(())
 }
 
-// Helper function to attempt parsing env var strings into C5 types
 fn parse_env_var_value(value_str: &str) -> C5DataValue {
-  // Try bool
   if value_str.eq_ignore_ascii_case("true") {
     return C5DataValue::Boolean(true);
   }
   if value_str.eq_ignore_ascii_case("false") {
     return C5DataValue::Boolean(false);
   }
-  // Try integer (signed first) - use i64 as base
   if let Ok(i) = value_str.parse::<i64>() {
     return C5DataValue::Integer(i);
   }
-  // Try unsigned integer - use u64 as base
   if let Ok(u) = value_str.parse::<u64>() {
     // Only use UInteger if it *didn't* parse as i64 (e.g., > i64::MAX)
-    // or perhaps prefer UInteger if non-negative? Let's stick to i64 if possible.
-    // If parsing as i64 succeeded, we use that. If not, try u64.
-    // A check could be added: if u <= i64::MAX as u64, return Integer(u as i64)?
-    // For simplicity now, if it parses as u64 *after* failing i64, use UInteger.
     return C5DataValue::UInteger(u);
   }
-  // Try float
   if let Ok(f) = value_str.parse::<f64>() {
     return C5DataValue::Float(f);
   }
-  // Fallback to string
   C5DataValue::String(value_str.to_string())
 }
 
-// Helper to merge a single environment variable into the nested structure
 fn merge_env_var_nested(
   target_map: &mut HashMap<String, C5DataValue>,
   c5_key: &str,
   value_str: &str,
 ) -> Result<(), ConfigError> {
-  let mut current_level_map = target_map; // Start with the root map
+  let mut current_level_map = target_map;
   let key_parts: Vec<&str> = c5_key.split('.').collect();
 
   for (i, part) in key_parts.iter().enumerate() {
@@ -324,20 +304,15 @@ fn merge_env_var_nested(
     }
 
     if i == key_parts.len() - 1 {
-      // --- Last part: Insert the final value ---
-      // `current_level_map` points to the correct parent map here.
       current_level_map.insert(part.to_string(), parse_env_var_value(value_str));
-      return Ok(()); // Done
+      return Ok(());
     } else {
-      // --- Intermediate part: Ensure map exists and prepare descent ---
       let entry = current_level_map.entry(part.to_string());
 
       match entry {
         std::collections::hash_map::Entry::Occupied(occ_entry) => {
-          // Entry exists, check if it's a map.
           // We don't need to keep the borrow from occ_entry.
           if !matches!(occ_entry.get(), C5DataValue::Map(_)) {
-            // Conflict: Entry exists but isn't a map
             return Err(ConfigError::Message(format!(
               "Env var key conflict: Cannot create nested structure for '{}' because part '{}' conflicts with an existing non-map value.",
               c5_key, part
@@ -346,7 +321,6 @@ fn merge_env_var_nested(
           // It is a map, allow occ_entry borrow to expire here.
         }
         std::collections::hash_map::Entry::Vacant(vac_entry) => {
-          // Entry doesn't exist, insert a new map.
           vac_entry.insert(C5DataValue::Map(HashMap::new()));
           // The borrow from vac_entry expires here.
         }
@@ -357,52 +331,41 @@ fn merge_env_var_nested(
       // Get the mutable reference *from current_level_map* to descend for the *next* iteration.
       // This borrow is valid as it's derived from `current_level_map` itself.
       if let Some(C5DataValue::Map(next_map)) = current_level_map.get_mut(*part) {
-        // Update `current_level_map` to point to the nested map for the next loop iteration.
         current_level_map = next_map;
       } else {
-        // This case should be impossible if the match logic above is correct.
         unreachable!(
           "Map for part '{}' should exist here but wasn't found or wasn't a Map",
           part
         );
       }
-    } // end intermediate part
-  } // end loop
+    }
+  }
 
   // This point should be unreachable because the last part is handled inside the loop.
   unreachable!("Loop should handle all parts or return early");
 }
 
 // Helper to recursively merge hashmaps, src overwrites dest
-// Ensures nested maps are merged correctly.
 fn _merge(dest: &mut HashMap<String, C5DataValue>, src: &HashMap<String, C5DataValue>) {
   for (src_key, src_value) in src.iter() {
-    // Use iter()
     match dest.entry(src_key.clone()) {
-      // Use entry API
       std::collections::hash_map::Entry::Occupied(mut entry) => {
-        // Key exists in destination, get mutable ref to existing value
         let dest_val = entry.get_mut();
-        // Check if both are maps
         if let (C5DataValue::Map(dest_map), C5DataValue::Map(src_map)) = (dest_val, src_value) {
-          // Both are maps, recurse
           _merge(dest_map, src_map);
         } else {
-          // Not both maps (or different types), source overwrites destination value
           // This handles cases like: dest=Map, src=String -> dest becomes String
           // And: dest=String, src=Map -> dest becomes Map
-          *entry.into_mut() = src_value.clone(); // Use entry.into_mut() for direct replacement
+          *entry.into_mut() = src_value.clone();
         }
       }
       std::collections::hash_map::Entry::Vacant(entry) => {
-        // Key doesn't exist in destination, insert clone from source
         entry.insert(src_value.clone());
       }
     }
   }
 }
 
-// Helper to extract provider configurations (no changes needed inside, just signature)
 fn _take_provided_data(
   raw_config_data: &mut HashMap<String, C5DataValue>,
   provided_data: &mut MultiMap<String, C5DataValue>,
@@ -410,7 +373,6 @@ fn _take_provided_data(
   _take_provided_data_helper(raw_config_data, provided_data, String::new());
 }
 
-// Recursive helper for _take_provided_data (no changes needed)
 fn _take_provided_data_helper(
   current_map: &mut HashMap<String, C5DataValue>,
   provided_data: &mut MultiMap<String, C5DataValue>,

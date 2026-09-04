@@ -11,7 +11,6 @@ fn c5cli_cmd() -> Command {
   Command::cargo_bin(env!("CARGO_PKG_NAME")).unwrap()
 }
 
-// Helper to create a c5store key pair for testing encrypt/decrypt
 fn setup_test_c5_keys(dir: &Path, prefix: &str) -> Result<(PathBuf, PathBuf), Box<dyn std::error::Error>> {
   let mut cmd = c5cli_cmd();
   cmd.current_dir(dir);
@@ -36,11 +35,9 @@ fn test_encrypt_value_dry_run() -> Result<(), Box<dyn std::error::Error>> {
   fs::create_dir_all(&pub_key_root)?;
 
   // Create a dummy public key file (content doesn't strictly matter for dry run path check)
-  // For a more robust test, generate one with `c5cli gen kp`
   let (pub_key_path, _) = setup_test_c5_keys(test_dir.path(), "testkey_encrypt_dry_run")?;
   let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
 
-  // Create an empty initial config file
   let config_file_path = config_root.join("app.yaml");
   fs::write(&config_file_path, "")?;
 
@@ -55,7 +52,7 @@ fn test_encrypt_value_dry_run() -> Result<(), Box<dyn std::error::Error>> {
     .arg("--config-root-dir")
     .arg(&config_root)
     .arg("--public-key-dir")
-    .arg(test_dir.path()); // Assuming pub key was generated in test_dir directly by helper
+    .arg(test_dir.path());
 
   cmd
     .assert()
@@ -85,13 +82,12 @@ fn test_encrypt_value_commit() -> Result<(), Box<dyn std::error::Error>> {
   let config_root = test_dir.path().join("config");
   let pub_key_root = test_dir.path().join("keys"); // Not used if pubkey in test_dir
   fs::create_dir_all(&config_root)?;
-  // fs::create_dir_all(&pub_key_root)?; // Not strictly needed if using test_dir for pubkey
 
   let (pub_key_path, _) = setup_test_c5_keys(test_dir.path(), "testkey_encrypt_commit")?;
   let pub_key_name = pub_key_path.file_name().unwrap().to_str().unwrap();
 
   let config_file_path = config_root.join("secrets.yaml");
-  fs::write(&config_file_path, "existing_key: some_value\n")?; // Start with some content
+  fs::write(&config_file_path, "existing_key: some_value\n")?;
 
   let mut cmd = c5cli_cmd();
   cmd
@@ -113,7 +109,7 @@ fn test_encrypt_value_commit() -> Result<(), Box<dyn std::error::Error>> {
     .stdout(predicate::str::contains("Encrypted secret successfully committed."));
 
   let content = fs::read_to_string(&config_file_path)?;
-  assert!(content.contains("existing_key: some_value")); // Ensure old content still there
+  assert!(content.contains("existing_key: some_value"));
   assert!(content.contains("database:"));
   assert!(content.contains("  user:"));
   assert!(content.contains("    token:"));
@@ -132,7 +128,7 @@ fn test_encrypt_file_commit_output_file() -> Result<(), Box<dyn std::error::Erro
   let pub_key_root = test_dir.path().join("source_keys");
   let output_dir = test_dir.path().join("output_config");
   fs::create_dir_all(&config_root)?;
-  fs::create_dir_all(&pub_key_root)?; // pub_key_dir will be this
+  fs::create_dir_all(&pub_key_root)?;
   fs::create_dir_all(&output_dir)?;
 
   let (pub_key_path, _) = setup_test_c5_keys(&pub_key_root, "key_for_file_encrypt")?;
@@ -244,8 +240,6 @@ fn test_encrypt_reencrypt() -> Result<(), Box<dyn std::error::Error>> {
   assert!(content.contains("- new_key.c5")); // Check for new key name
   assert!(!content.contains("- old_key.c5")); // Old key name should be gone
 
-  // Optional: Try to decrypt with the new private key (if we had it)
-  // or decrypt with old private key (should fail)
   Ok(())
 }
 
@@ -280,7 +274,6 @@ fn test_encrypt_into_array_by_index() -> Result<(), Box<dyn std::error::Error>> 
   cmd.assert().success();
 
   let content = fs::read_to_string(&config_file_path)?;
-  // Use serde_yaml to parse and inspect the structure for robustness
   let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
   // Check Alice (users[0])
@@ -413,7 +406,6 @@ fn test_encrypt_fails_on_zero_match_query() -> Result<(), Box<dyn std::error::Er
   Ok(())
 }
 
-// Add this at the end of cli/c5cli/tests/cli_encrypt_tests.rs
 
 #[test]
 #[serial]
