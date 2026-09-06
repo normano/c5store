@@ -11,22 +11,30 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 ## [Unreleased]
 
 ### Added
-- serialization::toml::deserialize_toml, so a C5FileValueProvider section can declare format = "toml" once the caller registers it.
 
 ### Changed
-- C5FileValueProvider::register_deserializer is public, so a caller can add a format the crate does not ship.
-- serialization::toml_value_to_c5_value moved to serialization::toml::toml_value_to_c5_value.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+### Security
+
+## [0.4.14] - 2026-09-06
+
+### Added
+- serialization::toml::deserialize_toml, so a C5FileValueProvider section can declare format = "toml" once the caller registers it.
+
+### Changed
+- C5FileValueProvider::register_deserializer is public, so a caller can add a format the crate does not ship.
+- serialization::toml_value_to_c5_value moved to serialization::toml::toml_value_to_c5_value.
+
+### Fixed
 - C5StoreBranch::key_paths_with_prefix returns key paths relative to the branch, and None lists the branch's own keys rather than every key in the store.
 - The crate builds and tests without the secrets feature again. --no-default-features and every combination lacking secrets failed to compile.
 - get_source reports Provider(name) for a value written by a value provider, where it previously reported SetProgrammatically.
-
-### Security
 
 ## [0.4.13] - 2026-09-06
 
