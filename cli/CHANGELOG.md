@@ -8,7 +8,23 @@ Rolling a release turns what has accumulated under `[Unreleased]` into a version
 
 Between rolls, an entry goes under `[Unreleased]` in the section matching its change type: `Added` for new features, `Changed` for changes to existing behaviour, `Deprecated` for features about to go, `Removed` for features now gone, `Fixed` for bug fixes and `Security` for vulnerabilities. A section with no entries is left empty rather than deleted.
 
+The two crates version independently, so a version heading names each crate and its version.
+
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [c5_core 2.0.0 / c5cli 1.2.0] - 2026-09-06
 
 ### Added
 - c5cli reads and writes TOML and JSON as well as YAML, chosen by the file's extension.
@@ -22,12 +38,6 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 - A path that names nothing says which segment it stopped at.
 - A new key is quoted only where the format requires it.
 
-### Deprecated
-
 ### Removed
 - c5_core::yaml_utils, which Document answers.
 - serde_yaml and serde_yaml2, only ever used to re-emit a document.
-
-### Fixed
-
-### Security
