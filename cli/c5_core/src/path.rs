@@ -1,4 +1,4 @@
-use c5_core::C5CoreError;
+use crate::error::C5CoreError;
 use regex::Regex;
 
 #[derive(Debug, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 use crate::error::C5CoreError;
 use crate::keys::CryptoAlgorithm;
 use std::path::Path;
-use yaml_rust2::Yaml;
+use crate::value::Value;
 
 /// Represents the parts of a c5store secret array.
 #[derive(Debug, PartialEq, Eq)]
@@ -29,34 +29,32 @@ fn derive_key_name_from_filename(public_key_file_name: &str) -> String {
   }
 }
 
-/// Formats the necessary components into the c5store secret array structure
-/// (a `yaml_rust2::Yaml::Array`).
+/// The c5store secret array: algorithm, key name and ciphertext, in that
+/// order, whatever format the document it goes into is written in.
 pub fn format_c5_secret_array(
   algo: CryptoAlgorithm,
   public_key_file_name: &str,
   b64_ciphertext: String,
-) -> Result<Yaml, C5CoreError> {
+) -> Result<Value, C5CoreError> {
   let algo_str = match algo {
     CryptoAlgorithm::EciesX25519 => "ecies_x25519".to_string(),
   };
 
   let key_name = derive_key_name_from_filename(public_key_file_name);
 
-  let secret_array_vec = vec![
-    Yaml::String(algo_str),
-    Yaml::String(key_name),
-    Yaml::String(b64_ciphertext),
-  ];
-  Ok(Yaml::Array(secret_array_vec))
+  Ok(Value::Array(vec![
+    Value::String(algo_str),
+    Value::String(key_name),
+    Value::String(b64_ciphertext),
+  ]))
 }
 
-/// Parses a `yaml_rust2::Yaml` (expected to be a c5store secret array)
-/// into its constituent parts.
+/// The parts of a c5store secret array, whichever format it was read from.
 pub fn parse_c5_secret_array(
-  secret_yaml_value: &Yaml,
+  secret_value: &Value,
 ) -> Result<C5SecretValueParts, C5CoreError> {
-  match secret_yaml_value {
-    Yaml::Array(seq) => {
+  match secret_value {
+    Value::Array(seq) => {
       if seq.len() == 3 {
         let algo_str = seq[0].as_str().ok_or_else(|| {
           C5CoreError::YamlNavigation("First element of secret array (algorithm) is not a string.".to_string())
@@ -80,9 +78,10 @@ pub fn parse_c5_secret_array(
         )))
       }
     }
-    _ => Err(C5CoreError::YamlNavigation(
-      "Expected secret value to be a YAML Array.".to_string(),
-    )),
+    other => Err(C5CoreError::YamlNavigation(format!(
+      "Expected the secret value to be an array of three strings, found {}.",
+      other.kind()
+    ))),
   }
 }
 
@@ -108,14 +107,14 @@ mod tests {
 
     let formatted_value = format_c5_secret_array(algo, pk_filename, ciphertext.clone()).unwrap();
 
-    assert!(matches!(formatted_value, Yaml::Array(_)));
-    if let Yaml::Array(seq) = formatted_value {
+    assert!(matches!(formatted_value, Value::Array(_)));
+    if let Value::Array(seq) = formatted_value {
       assert_eq!(seq.len(), 3);
       assert_eq!(seq[0].as_str().unwrap(), "ecies_x25519");
       assert_eq!(seq[1].as_str().unwrap(), "service.prod");
       assert_eq!(seq[2].as_str().unwrap(), &ciphertext);
 
-      let parsed_parts = parse_c5_secret_array(&Yaml::Array(seq)).unwrap();
+      let parsed_parts = parse_c5_secret_array(&Value::Array(seq)).unwrap();
       assert_eq!(
         parsed_parts,
         C5SecretValueParts {
@@ -125,25 +124,25 @@ mod tests {
         }
       );
     } else {
-      panic!("Formatted value was not a Yaml::Array");
+      panic!("Formatted value was not an array");
     }
   }
 
   #[test]
   fn test_parse_invalid_secret_arrays() {
     // Not an array
-    let val_not_seq = Yaml::String("not a sequence".to_string());
+    let val_not_seq = Value::String("not a sequence".to_string());
     assert!(parse_c5_secret_array(&val_not_seq).is_err());
 
     // Wrong length
-    let val_wrong_len = Yaml::Array(vec![Yaml::String("a".into()), Yaml::String("b".into())]);
+    let val_wrong_len = Value::Array(vec![Value::String("a".into()), Value::String("b".into())]);
     assert!(parse_c5_secret_array(&val_wrong_len).is_err());
 
     // Non-string element
-    let val_non_string = Yaml::Array(vec![
-      Yaml::String("algo".into()),
-      Yaml::Integer(123.into()),
-      Yaml::String("cipher".into()),
+    let val_non_string = Value::Array(vec![
+      Value::String("algo".into()),
+      Value::Int(123),
+      Value::String("cipher".into()),
     ]);
     assert!(parse_c5_secret_array(&val_non_string).is_err());
   }

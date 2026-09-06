@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"
 
-description = "Command-line interface for c5store secret management, enabling encryption, decryption, and key generation for YAML configurations."
+description = "Command-line interface for c5store secret management, enabling encryption, decryption, and key generation for YAML, TOML and JSON configurations."
 readme = "README.md"
 homepage = "https://github.com/normano/c5store/tree/main/cli/c5cli"
 repository = "https://github.com/normano/c5store.git"
@@ -16,17 +16,13 @@ categories = ["command-line-utilities", "config", "development-tools"]
 atty = "^0"
 c5_core = { version = "^1", path = "../c5_core" } 
 clap = { version = "^4.5", features = ["derive", "cargo"] }
-serde_yaml2 = "^0.1"
 rand = "^0.9"
-regex = "^1.11"
-yaml-rust2 = { workspace = true }
 
 anyhow = "^1.0"
 
 [dev-dependencies]
 assert_cmd = "^2.0"
 predicates = "^3.0"
-serde_yaml = "^0.9"
 serial_test = { workspace = true }
 tempfile = "^3.9"
 

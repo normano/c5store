@@ -1,18 +1,18 @@
 # c5cli - Command Line Interface for c5store Secret Management
 
-`c5cli` is a command-line tool for managing secrets within YAML configuration files, designed to work with the [c5store](https://github.com/normano/c5store) configuration library's secret format. It allows you to encrypt, decrypt, and generate cryptographic keys for securing sensitive data.
+`c5cli` is a command-line tool for managing secrets within YAML, TOML and JSON configuration files, designed to work with the [c5store](https://github.com/normano/c5store) configuration library's secret format. It allows you to encrypt, decrypt, and generate cryptographic keys for securing sensitive data.
 
-This tool leverages the `c5_core` library for its underlying cryptographic and YAML manipulation capabilities.
+This tool leverages the `c5_core` library for its underlying cryptographic and document editing capabilities. A file is edited in place: comments, blank lines, key order and the file's own indentation all survive.
 
 ## Features
 
 *   **Encrypt:**
     *   Encrypt string values or the content of files.
-    *   Store encrypted secrets in a structured YAML format (`.c5encval` arrays).
+    *   Store encrypted secrets as `.c5encval` arrays, in YAML, TOML or JSON.
     *   Re-encrypt existing secrets with new keys.
     *   Dry-run mode to preview changes.
 *   **Decrypt:**
-    *   Decrypt secrets stored in the c5store format from YAML files.
+    *   Decrypt secrets stored in the c5store format, from any of those files.
     *   Output decrypted content to a file or stdout.
 *   **Generate Keys:**
     *   Generate ECIES X25519 key pairs (PEM format) for use with c5store secrets.
@@ -55,7 +55,7 @@ c5cli <COMMAND> --help
 *   `--config-root-dir <PATH>`: Root directory for configuration files (default: `config`).
 *   `--public-key-dir <PATH>`: Directory for public keys (for `encrypt`, default: `config/public_keys`).
 *   `--private-key-dir <PATH>`: Directory for private keys (for `decrypt`, default: `config/private_keys`).
-*   `--secret-segment <SEGMENT>`: The YAML key used to store the secret array (default: `.c5encval`).
+*   `--secret-segment <SEGMENT>`: The key the secret array is stored under (default: `.c5encval`).
 
 ### 1. Generating Key Pairs (`gen`)
 
@@ -110,15 +110,15 @@ c5cli gen ssh my_ssh_key --output-dir ssh_keys -C "user@example.com"
 
 ### 2. Encrypting Secrets (`encrypt`)
 
-Encrypts a value or file content and prepares it for inclusion in a YAML configuration file. By default, it performs a dry run. Use `--commit` to write changes.
+Encrypts a value or file content and prepares it for inclusion in a configuration file. By default, it performs a dry run. Use `--commit` to write changes.
 
 ```bash
 c5cli encrypt [OPTIONS] <CONFIG_FILE_NAME> <PUBLIC_KEY_FILE_NAME> <KEY_PATH>
 ```
 
-*   `<CONFIG_FILE_NAME>`: Name of the YAML config file (e.g., `app.yaml`). Searched in `--config-root-dir`.
+*   `<CONFIG_FILE_NAME>`: Name of the config file (e.g., `app.yaml`, `app.toml`, `app.json`). The format is chosen by the extension, and anything else is read as YAML. Searched in `--config-root-dir`.
 *   `<PUBLIC_KEY_FILE_NAME>`: Name of the public key PEM file (e.g., `service_a.c5.pub.pem`). Searched in `--public-key-dir`.
-*   `<KEY_PATH>`: Dot-separated path within the YAML where the secret should be stored (e.g., `database.password`).
+*   `<KEY_PATH>`: Dot-separated path within the document where the secret should be stored (e.g., `database.password`).
 
 **Input Options (choose one):**
 
@@ -131,7 +131,7 @@ c5cli encrypt [OPTIONS] <CONFIG_FILE_NAME> <PUBLIC_KEY_FILE_NAME> <KEY_PATH>
 **Output Options:**
 
 *   `--commit`: Actually write the changes to the `<CONFIG_FILE_NAME>` or `--output-file`.
-*   `--output-file <OUTPUT_FILE_PATH>`: (Requires `--commit`) Write the modified YAML to a different file instead of in-place.
+*   `--output-file <OUTPUT_FILE_PATH>`: (Requires `--commit`) Write the modified document to a different file instead of in-place.
 
 **Example: Encrypting a password (dry run)**
 
@@ -152,14 +152,14 @@ c5cli encrypt base_config.yaml service_key.c5.pub.pem certs.private_content \
 
 ### 3. Decrypting Secrets (`decrypt`)
 
-Decrypts a secret from a YAML configuration file.
+Decrypts a secret from a configuration file.
 
 ```bash
 c5cli decrypt [OPTIONS] <CONFIG_FILE_NAME> <KEY_PATH> <PRIVATE_KEY_FILE_NAME> [OUTPUT_FILE_PATH]
 ```
 
-*   `<CONFIG_FILE_NAME>`: Name of the YAML config file.
-*   `<KEY_PATH>`: Dot-separated path within the YAML where the secret is stored.
+*   `<CONFIG_FILE_NAME>`: Name of the config file.
+*   `<KEY_PATH>`: Dot-separated path within the document where the secret is stored.
 *   `<PRIVATE_KEY_FILE_NAME>`: Name of the private key PEM file.
 *   `[OUTPUT_FILE_PATH]`: Path to save the decrypted content. Required unless `--to-stdout` is used.
 
@@ -184,16 +184,37 @@ c5cli decrypt app.yaml certs.private_content service_key.c5.key.pem /tmp/decrypt
 
 ## Configuration Secret Format
 
-`c5cli` (and `c5store`) expect secrets to be stored in YAML as an array under a specific key (default `.c5encval`):
+`c5cli` (and `c5store`) expect a secret to be an array of three strings under a key of its own (default `.c5encval`): the algorithm, the key name derived from the public key's filename, and the base64 ciphertext.
 
 ```yaml
 some_service:
   api_key:
-    ".c5encval": # This is the secret_segment
-      - "ecies_x25519"                     # Algorithm
-      - "my_key_name"                      # Key name (derived from public key filename)
-      - "Base64EncodedCiphertextGoesHere=" # Ciphertext
+    ".c5encval":
+      - ecies_x25519
+      - my_key_name
+      - Base64EncodedCiphertextGoesHere=
 ```
+
+```toml
+[some_service]
+api_key = { ".c5encval" = ["ecies_x25519", "my_key_name", "Base64EncodedCiphertextGoesHere="] }
+```
+
+```json
+{
+  "some_service": {
+    "api_key": {
+      ".c5encval": ["ecies_x25519", "my_key_name", "Base64EncodedCiphertextGoesHere="]
+    }
+  }
+}
+```
+
+## What a write will refuse
+
+*   A YAML value written in flow style, `key: {a: 1}`, has no lines of its own to replace. `c5cli` names it and stops rather than reflowing the file; rewrite it as a block first.
+*   A query matching more than one object, since a write has to know which object it is changing.
+*   An index or a query naming something the file does not already hold, since neither can be created.
 
 ## Development
 

@@ -7,6 +7,18 @@ use std::process::Command;
 use std::{fs, path::PathBuf};
 use tempfile::{tempdir, NamedTempFile};
 
+/// The value at a c5cli path, read back through the same reader the tool uses.
+fn at(text: &str, path: &str) -> Option<c5_core::Value> {
+  let format = c5_core::Format::Yaml;
+  c5_core::Document::parse(text, format).unwrap().get(&c5_core::parse_path(path).unwrap()).unwrap()
+}
+
+/// The key name a secret array records, for asserting which key encrypted it.
+fn key_name(value: &c5_core::Value) -> &str {
+  value.as_array().expect("a secret is an array")[1].as_str().expect("the key name is a string")
+}
+
+
 fn c5cli_cmd() -> Command {
   Command::cargo_bin(env!("CARGO_PKG_NAME")).unwrap()
 }
@@ -274,15 +286,11 @@ fn test_encrypt_into_array_by_index() -> Result<(), Box<dyn std::error::Error>> 
   cmd.assert().success();
 
   let content = fs::read_to_string(&config_file_path)?;
-  let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
-  // Check Alice (users[0])
-  let alice_token = &doc["users"][0]["token"][".c5encval"];
-  assert!(alice_token.is_sequence());
-  assert_eq!(alice_token[1].as_str().unwrap(), "idx_key.c5");
+  let alice = at(&content, "users[0].token").expect("alice has a token");
+  assert_eq!(key_name(alice.get(".c5encval").expect("alice's token is a secret")), "idx_key.c5");
 
-  // Check Bob (users[1]) - should NOT have a token
-  assert!(&doc["users"][1]["token"].is_null()); // Accessing a non-existent key in serde_yaml yields Null.
+  assert_eq!(at(&content, "users[1].token"), None, "bob was not the one encrypted");
 
   Ok(())
 }
@@ -321,15 +329,11 @@ fn test_encrypt_into_array_by_query() -> Result<(), Box<dyn std::error::Error>> 
   cmd.assert().success();
 
   let content = fs::read_to_string(&config_file_path)?;
-  let doc: serde_yaml::Value = serde_yaml::from_str(&content)?;
 
-  // Check Bob (the queried user)
-  let bob_token = &doc["users"][1]["token"][".c5encval"];
-  assert!(bob_token.is_sequence());
-  assert_eq!(bob_token[1].as_str().unwrap(), "query_key.c5");
+  let bob = at(&content, "users[1].token").expect("bob has a token");
+  assert_eq!(key_name(bob.get(".c5encval").expect("bob's token is a secret")), "query_key.c5");
 
-  // Check Alice - should NOT have a token
-  assert!(&doc["users"][0]["token"].is_null());
+  assert_eq!(at(&content, "users[0].token"), None, "alice was not the one encrypted");
 
   Ok(())
 }
@@ -452,17 +456,10 @@ users:
 
   // 4. Assert the structure has been correctly modified
   let final_content = fs::read_to_string(&config_file_path)?;
-  let doc: serde_yaml::Value = serde_yaml::from_str(&final_content)?;
 
-  let value_node = &doc["users"][0]["credentials"][0]["value"];
-  assert!(
-    value_node.is_mapping(),
-    "The 'value' node should have been replaced with a map"
-  );
-
-  let c5encval_node = &value_node[".c5encval"];
-  assert!(c5encval_node.is_sequence(), "'.c5encval' should be a sequence");
-  assert_eq!(c5encval_node[1].as_str().unwrap(), "replace_key.c5");
+  let value_node = at(&final_content, "users[0].credentials[0].value").expect("the credential still has a value");
+  let secret = value_node.get(".c5encval").expect("the value was replaced with a secret");
+  assert_eq!(key_name(secret), "replace_key.c5");
 
   // 5. (Bonus) Decrypt to verify the *content* is correct
   let output_file = test_dir.path().join("decrypted.txt");

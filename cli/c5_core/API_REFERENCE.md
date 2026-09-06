@@ -1,6 +1,6 @@
 # `c5_core` API Reference
 
-The `c5_core` crate provides foundational utilities for cryptographic operations, key management, YAML manipulation, and file I/O, primarily designed to support the `c5cli` tool and `c5store` secret management.
+The `c5_core` crate provides foundational utilities for cryptographic operations, key management, configuration documents and file I/O, primarily designed to support the `c5cli` tool and `c5store` secret management.
 
 ## Error Type
 
@@ -14,9 +14,9 @@ All fallible functions in this crate return `Result<T, C5CoreError>`.
     *   `EciesOperation(ecies_25519::Error)`: Error during ECIES encryption/decryption.
     *   `EciesKeyParse(ecies_25519::KeyParsingError)`: Error parsing an ECIES key.
     *   `Base64Decode(base64::DecodeError)`: Error decoding Base64 data.
-    *   `YamlDeserialize(String)`: Error deserializing YAML string (e.g., `YamlLoader::load_from_str`).
-    *   `YamlSerialize(String)`: Error serializing YAML to string (e.g., `YamlEmitter::dump`).
-    *   `YamlNavigation(String)`: Error navigating or manipulating YAML structure.
+    *   `YamlDeserialize(String)`: Error parsing a configuration document, whichever format it is written in.
+    *   `YamlSerialize(String)`: Error rendering a value into a document.
+    *   `YamlNavigation(String)`: Error navigating or manipulating a document's structure.
     *   `YamlRust2Parse(yaml_rust2::ScanError)`: Lower-level YAML parsing error from `yaml-rust2`.
     *   `UnsupportedAlgorithm(String)`: Algorithm not supported.
     *   `FileExists(PathBuf)`: Attempted to write to a file that already exists without force.
@@ -76,36 +76,75 @@ All fallible functions in this crate return `Result<T, C5CoreError>`.
 
 ## c5store Secret Formatting (`secrets_format.rs`)
 
-This module deals with the standard array format for c5store secrets within YAML.
+This module deals with the standard array format for a c5store secret, whichever format the document holding it is written in.
 `[<algorithm_string>, <key_name_string>, <base64_ciphertext_string>]`
 
 *   **Types:**
     *   `C5SecretValueParts { algo_str: String, key_name: String, b64_ciphertext: String }`: Struct representing the parts of a c5store secret array.
 
 *   **Functions:**
-    *   `format_c5_secret_array(algo: CryptoAlgorithm, public_key_file_name: &str, b64_ciphertext: String) -> Result<yaml_rust2::Yaml, C5CoreError>`
-        *   Formats the components into a `yaml_rust2::Yaml::Array`.
+    *   `format_c5_secret_array(algo: CryptoAlgorithm, public_key_file_name: &str, b64_ciphertext: String) -> Result<Value, C5CoreError>`
+        *   Formats the components into a `Value::Array`.
         *   Derives `key_name` from `public_key_file_name` (e.g., "my.key.pub.pem" -> "my.key").
-    *   `parse_c5_secret_array(secret_yaml_value: &yaml_rust2::Yaml) -> Result<C5SecretValueParts, C5CoreError>`
-        *   Parses a `yaml_rust2::Yaml::Array` into `C5SecretValueParts`.
+    *   `parse_c5_secret_array(secret_value: &Value) -> Result<C5SecretValueParts, C5CoreError>`
+        *   Parses a `Value::Array` into `C5SecretValueParts`.
 
-## YAML Utilities (`yaml_utils.rs`)
+## Values (`value.rs`)
 
-Uses `yaml_rust2` for YAML processing.
+The value a configuration document holds, independent of the format it is written in.
 
 *   **Types:**
-    *   `yaml_rust2::Yaml`: The primary enum representing YAML values.
+    *   `Value`: `Null`, `Bool(bool)`, `Int(i64)`, `Float(f64)`, `String(String)`, `Array(Vec<Value>)`, `Map(Vec<(String, Value)>)`. The map is ordered, since a document keeps the order it was written in.
+
+*   **Methods:**
+    *   `as_str(&self) -> Option<&str>`, `as_array(&self) -> Option<&[Value]>`, `as_map(&self) -> Option<&[(String, Value)]>`
+    *   `get(&self, key: &str) -> Option<&Value>`: The entry of a map, or `None` for anything else.
+    *   `kind(&self) -> &'static str`: What the value is, for an error that has to say what it found.
+
+## Paths (`path.rs`)
+
+*   **Types:**
+    *   `PathSegment<'a>`: `Key(&'a str)`, `Index(usize)`, `Query { key: &'a str, value: &'a str }`
 
 *   **Functions:**
-    *   `load_yaml_from_string(yaml_str: &str) -> Result<Yaml, C5CoreError>`
-        *   Loads the first YAML document from a string. Returns an empty `Yaml::Hash` for empty string.
-    *   `dump_yaml_to_string(yaml_doc: &Yaml) -> Result<String, C5CoreError>`
-        *   Serializes a `Yaml` document to a string.
-    *   `get_yaml_value_at_path<'a>(root: &'a Yaml, path_str: &str) -> Option<&'a Yaml>`
-        *   Retrieves a reference to a YAML value at a dot-separated `path_str` (e.g., "level1.level2.key").
-        *   Returns `Some(root)` if `path_str` is empty.
-    *   `set_yaml_value_at_path(root: &mut Yaml, path_str: &str, value_to_set: Yaml) -> Result<(), C5CoreError>`
-        *   Sets a YAML value at a dot-separated `path_str`.
-        *   Creates intermediate `Yaml::Hash` (map) nodes if they don't exist (or are `Yaml::Null`).
-        *   If `path_str` is empty, replaces the `root` with `value_to_set`.
-        *   Returns an error if an intermediate path segment is a scalar or array that cannot be converted to a map.
+    *   `parse_path(path_str: &str) -> Result<Vec<PathSegment>, C5CoreError>`
+        *   Parses `auth.bootstrap`, `users[0].name` and `credentials[name="default"].value` into segments. An empty path is an empty `Vec`.
+
+## Documents (`document.rs`)
+
+A configuration document, read and **edited in place**. Writing replaces the bytes of one value and touches nothing else, so comments, blank lines, key order and the file's own indentation all survive an edit.
+
+*   **Types:**
+    *   `Format`: `Yaml`, `Toml`, `Json`.
+        *   `Format::of(path: &Path) -> Format`: chosen by extension; anything else is `Yaml`.
+        *   `name(&self) -> &'static str`: `"YAML"`, `"TOML"` or `"JSON"`.
+    *   `Document`: a document's text and its format.
+
+*   **Methods:**
+    *   `Document::load(path: &Path) -> Result<Document, C5CoreError>`
+        *   Reads and checks the file. A file that does not exist is an empty document of its extension's format.
+    *   `Document::parse(text: impl Into<String>, format: Format) -> Result<Document, C5CoreError>`
+    *   `Document::empty(format: Format) -> Document`
+    *   `format(&self) -> Format`, `text(&self) -> &str`
+    *   `get(&self, segments: &[PathSegment]) -> Result<Option<Value>, C5CoreError>`
+        *   The value a path names, or `None` when it names nothing.
+    *   `depth_of(&self, segments: &[PathSegment]) -> usize`
+        *   How many leading segments the document holds, for an error that has to say where a path stopped being true.
+    *   `set(&mut self, segments: &[PathSegment], value: &Value) -> Result<(), C5CoreError>`
+        *   Puts `value` at the path, creating the maps along the way that do not exist yet.
+
+### What each format keeps
+
+*   **TOML** is edited through `toml_edit`, so comments, spacing, alignment, key order and quoting are all preserved.
+*   **JSON** is edited by replacing the bytes of one value, so the document's own layout, including tab indentation, is preserved.
+*   **YAML** is navigated with `yaml-rust2` and edited by replacing the lines an entry occupies. Its emitter is never used, so nothing is reflowed.
+
+### What a write will refuse
+
+*   A YAML value written in flow style, `key: {a: 1}`, has no lines of its own to replace. It is refused by name rather than reflowed; rewrite it as a block first.
+*   A query matching more than one object, since a write has to know which object it is changing.
+*   An index or a query naming something the document does not already hold, since neither can be created.
+
+### Indentation
+
+A line already in the document is never re-indented. A line being created takes the file's own indent: the character and width are read from the first place the document nests, and a document with nothing to learn from gets two spaces. Note that YAML forbids a tab as indentation, so a tab-indented YAML file is refused by the parser.

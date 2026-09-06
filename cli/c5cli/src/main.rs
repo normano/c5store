@@ -3,7 +3,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::process::ExitCode;
 
 mod commands;
-mod path_parser;
 
 #[derive(ValueEnum, Clone, Debug, Copy)]
 pub enum CliCryptoAlgorithm {
