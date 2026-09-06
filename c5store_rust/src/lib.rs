@@ -455,13 +455,17 @@ impl C5Store for C5StoreBranch {
   }
 
   fn key_paths_with_prefix(&self, key_path_option: Option<&str>) -> Vec<String> {
-    return match key_path_option {
-      Some(key_path) => {
-        let merged_key_path = self._merge_key_path(key_path);
-        self._root.key_paths_with_prefix(Some(&merged_key_path))
-      }
-      None => self._root.key_paths_with_prefix(None),
+    let merged_key_path = match key_path_option {
+      Some(key_path) => self._merge_key_path(key_path),
+      None => self._key_path.clone(),
     };
+    let prefix = self._key_path.to_string() + ".";
+    return self
+      ._root
+      .key_paths_with_prefix(Some(&merged_key_path))
+      .into_iter()
+      .filter_map(|key_path| key_path.strip_prefix(&prefix).map(str::to_owned))
+      .collect();
   }
 
   fn current_key_path(&self) -> &str {

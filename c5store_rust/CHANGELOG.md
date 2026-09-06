@@ -22,6 +22,7 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 ### Removed
 
 ### Fixed
+- C5StoreBranch::key_paths_with_prefix returns key paths relative to the branch, and None lists the branch's own keys rather than every key in the store.
 - The crate builds and tests without the secrets feature again. --no-default-features and every combination lacking secrets failed to compile.
 - get_source reports Provider(name) for a value written by a value provider, where it previously reported SetProgrammatically.
 
