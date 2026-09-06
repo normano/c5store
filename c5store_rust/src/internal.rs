@@ -10,7 +10,10 @@ use skiplist::SkipMap;
 
 use crate::config_source::ConfigSource;
 use crate::error::ConfigError;
+#[cfg(feature = "secrets")]
 use crate::secrets::SecretKeyStore;
+#[cfg(not(feature = "secrets"))]
+use crate::secrets_dummy::SecretKeyStore;
 use crate::telemetry::{Logger, StatsRecorder, TagValue};
 use crate::value::C5DataValue;
 use crate::{ChangeListener, DetailedChangeListener};
@@ -103,7 +106,7 @@ impl C5DataStore {
   fn _decrypt_value_recursive_in_place(&self, value: &mut C5DataValue, path_for_logging: &str) {
     match value {
       C5DataValue::Map(map) => {
-        // First, check if this map *is* a secret definition.
+        #[cfg(feature = "secrets")]
         if let Some(secret_val) = map.get(".c5encval") {
           let temp_log_key = format!("{}.<secret>", path_for_logging);
 
@@ -112,7 +115,7 @@ impl C5DataStore {
           } else {
             *value = C5DataValue::Null;
           }
-          return; // Stop traversing this branch.
+          return;
         }
 
         for (key, child_value) in map.iter_mut() {

@@ -1,6 +1,6 @@
 [package]
 name = "c5store"
-version = "1.0.0"
+version = "0.4.13"
 edition = "2024"
 authors = ["Norm O <normo.pub@gmail.com>"]
 license = "MPL-2.0"

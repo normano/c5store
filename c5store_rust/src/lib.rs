@@ -29,12 +29,15 @@ use std::{env, fs};
 
 use c5_serde::de::C5SerdeValueDeserializer;
 use config_source::ConfigSource;
+#[cfg(feature = "secrets")]
 use curve25519_parser::parse_openssl_25519_privkey;
 #[cfg(feature = "dotenv")]
 use dotenvy;
 use error::ConfigError;
 
-use log::{debug, error, warn};
+use log::debug;
+#[cfg(feature = "secrets")]
+use log::{error, warn};
 use multimap::MultiMap;
 use parking_lot::Mutex;
 use scheduled_thread_pool::{JobHandle, ScheduledThreadPool};
@@ -93,6 +96,9 @@ pub type ChangeListener = dyn Fn(&str, &str, &C5DataValue) -> () + Send + Sync;
 // params: notify key path, key path, new value, old value (Option)
 pub type DetailedChangeListener = dyn Fn(&str, &str, &C5DataValue, Option<&C5DataValue>) -> () + Send + Sync;
 pub type SetDataFn = dyn Fn(&str, C5DataValue) + Send + Sync;
+
+/// Builds a `SetDataFn` that tags every write it makes with one `ConfigSource`.
+pub(crate) type SetDataFnFactory = dyn Fn(ConfigSource) -> Arc<SetDataFn> + Send + Sync;
 
 /// Define a struct to hold pending change info
 struct PendingChange {
@@ -475,7 +481,7 @@ pub struct C5StoreMgr {
   _logger: Arc<dyn Logger>,
   _stats: Arc<dyn StatsRecorder>,
   _change_notifier: Arc<ChangeNotifier>,
-  _set_data_fn: Arc<SetDataFn>,
+  _set_data_fn_factory: Arc<SetDataFnFactory>,
   _provided_data: MultiMap<String, C5DataValue>,
 }
 
@@ -485,7 +491,7 @@ impl C5StoreMgr {
     logger: Arc<dyn Logger>,
     stats: Arc<dyn StatsRecorder>,
     change_notifier: Arc<ChangeNotifier>,
-    set_data_fn: Arc<SetDataFn>,
+    set_data_fn_factory: Arc<SetDataFnFactory>,
     provided_data: MultiMap<String, C5DataValue>,
   ) -> C5StoreMgr {
     return C5StoreMgr {
@@ -499,7 +505,7 @@ impl C5StoreMgr {
       _logger: logger,
       _stats: stats,
       _change_notifier: change_notifier,
-      _set_data_fn: set_data_fn,
+      _set_data_fn_factory: set_data_fn_factory,
       _provided_data: provided_data,
     };
   }
@@ -529,7 +535,9 @@ impl C5StoreMgr {
       value_provider.register(p_data);
     }
 
-    value_provider.hydrate(&*self._set_data_fn, true, &hydrate_context);
+    let set_data_fn = (self._set_data_fn_factory)(ConfigSource::Provider(name.to_string()));
+
+    value_provider.hydrate(&*set_data_fn, true, &hydrate_context);
 
     self
       ._value_providers
@@ -541,7 +549,7 @@ impl C5StoreMgr {
       let refresh_period_duration = Duration::from_secs(refresh_period_sec);
 
       let value_providers_clone = self._value_providers.clone();
-      let set_data_fn = self._set_data_fn.clone();
+      let set_data_fn = set_data_fn.clone();
       let name_clone = name.to_string();
       let job = move || {
         let value_providers = value_providers_clone.clone();
@@ -673,31 +681,31 @@ pub fn create_c5store(
     subscriptions.clone(),
   ));
 
-  let set_data_fn = {
+  let set_data_fn_factory: Arc<SetDataFnFactory> = {
     let data_store_clone = data_store.clone();
     let change_notifier_clone = change_notifier.clone();
 
-    Arc::new(move |key: &str, value: C5DataValue| {
+    Arc::new(move |source: ConfigSource| {
       let data_store = data_store_clone.clone();
       let change_notifier = change_notifier_clone.clone();
 
-      // Check *before* setting the data
-      let old_value = data_store.get_data(key);
+      Arc::new(move |key: &str, value: C5DataValue| {
+        // Check *before* setting the data
+        let old_value = data_store.get_data(key);
 
-      let needs_update = match &old_value {
-        Some(ov) => ov != &value,
-        None => true,
-      };
+        let needs_update = match &old_value {
+          Some(ov) => ov != &value,
+          None => true,
+        };
 
-      if needs_update {
-        // Set the data (which might decrypt secrets)
-        // Use internal setter to avoid infinite loop if set_data called set_data
-        let source = ConfigSource::SetProgrammatically;
-        let _prev_val = data_store._set_data_internal(key, value.clone(), source);
+        if needs_update {
+          // Use internal setter to avoid infinite loop if set_data called set_data
+          let _prev_val = data_store._set_data_internal(key, value.clone(), source.clone());
 
-        // Notify AFTER setting the data, passing old and new values
-        change_notifier.notify_changed(key, old_value, value);
-      }
+          // Notify AFTER setting the data, passing old and new values
+          change_notifier.notify_changed(key, old_value, value);
+        }
+      }) as Arc<SetDataFn>
     })
   };
 
@@ -710,7 +718,7 @@ pub fn create_c5store(
     logger.clone(),
     stats.clone(),
     change_notifier.clone(),
-    set_data_fn,
+    set_data_fn_factory,
     provided_data,
   );
 
@@ -849,6 +857,7 @@ mod tests {
 
   use crate::error::ConfigError;
   use crate::providers::C5FileValueProvider;
+  #[cfg(feature = "secrets")]
   use crate::secrets::{Base64SecretDecryptor, SecretKeyStore};
   use crate::value::C5DataValue;
   use crate::{C5Store, Case};

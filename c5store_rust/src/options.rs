@@ -1,4 +1,3 @@
-#[cfg(feature = "secrets")]
 use std::path::PathBuf;
 use std::{
   collections::HashMap,
@@ -14,7 +13,7 @@ use multimap::MultiMap;
 #[cfg(feature = "secrets")]
 use crate::secrets::{SecretKeyStore, systemd::SystemdCredential};
 #[cfg(feature = "toml")]
-use crate::serialization::map_from_toml_value_map;
+use crate::serialization::toml::map_from_toml_value_map;
 use crate::{config_source::ConfigSource, serialization::map_from_serde_yaml_valuemap, util};
 use crate::{
   error::ConfigError,
@@ -42,6 +41,7 @@ pub struct SecretOptions {
   pub load_credentials_from_systemd: Vec<SystemdCredential>,
 }
 
+#[cfg(feature = "secrets")]
 impl Default for SecretOptions {
   fn default() -> Self {
     return Self {

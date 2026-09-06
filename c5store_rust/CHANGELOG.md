@@ -11,18 +11,23 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 ## [Unreleased]
 
 ### Added
+- serialization::toml::deserialize_toml, so a C5FileValueProvider section can declare format = "toml" once the caller registers it.
 
 ### Changed
+- C5FileValueProvider::register_deserializer is public, so a caller can add a format the crate does not ship.
+- serialization::toml_value_to_c5_value moved to serialization::toml::toml_value_to_c5_value.
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+- The crate builds and tests without the secrets feature again. --no-default-features and every combination lacking secrets failed to compile.
+- get_source reports Provider(name) for a value written by a value provider, where it previously reported SetProgrammatically.
 
 ### Security
 
-## [1.0.0] - 2026-09-04
+## [0.4.13] - 2026-09-06
 
 ### Changed
 - ConfigBootstrapper::run now errors with TargetIsDir when a target path is a directory, instead of skipping it as an existing file.

@@ -107,7 +107,7 @@ impl C5FileValueProvider {
     return provider;
   }
 
-  fn register_deserializer<Deserializer>(&mut self, format_name: &str, deserializer: Deserializer)
+  pub fn register_deserializer<Deserializer>(&mut self, format_name: &str, deserializer: Deserializer)
   where
     Deserializer:
       'static + Fn(C5RawValue) -> Result<C5DataValue, crate::serialization::SerializationError> + Send + Sync,

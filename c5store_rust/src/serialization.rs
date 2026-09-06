@@ -10,6 +10,12 @@ pub enum SerializationError {
   Json(#[from] serde_json::Error),
   #[error("YAML deserialization failed: {0}")]
   Yaml(#[from] serde_yaml::Error),
+  #[cfg(feature = "toml")]
+  #[error("TOML deserialization failed: {0}")]
+  Toml(#[from] ::toml::de::Error),
+  #[cfg(feature = "toml")]
+  #[error("TOML is not UTF-8: {0}")]
+  TomlUtf8(#[from] std::str::Utf8Error),
 }
 
 pub fn deserialize_json(raw_value: C5RawValue) -> Result<C5DataValue, SerializationError> {
@@ -134,23 +140,44 @@ pub(crate) fn map_from_serde_yaml_valuemap(
 }
 
 #[cfg(feature = "toml")]
-pub fn toml_value_to_c5_value(toml_value: toml::Value) -> C5DataValue {
-  match toml_value {
-    toml::Value::String(s) => C5DataValue::String(s),
-    toml::Value::Integer(i) => C5DataValue::Integer(i),
-    toml::Value::Float(f) => C5DataValue::Float(f),
-    toml::Value::Boolean(b) => C5DataValue::Boolean(b),
-    toml::Value::Datetime(dt) => C5DataValue::String(dt.to_string()),
-    toml::Value::Array(arr) => C5DataValue::Array(arr.into_iter().map(toml_value_to_c5_value).collect()),
-    toml::Value::Table(table) => C5DataValue::Map(map_from_toml_value_map(table.into_iter().collect())),
-  }
-}
+pub mod toml {
+  use std::collections::HashMap;
 
-#[cfg(feature = "toml")]
-/// Converts a map of `toml::Value` into a map of `C5DataValue`.
-pub(crate) fn map_from_toml_value_map(toml_map: HashMap<String, toml::Value>) -> HashMap<String, C5DataValue> {
-  toml_map
-    .into_iter()
-    .map(|(key, value)| (key, toml_value_to_c5_value(value)))
-    .collect()
+  use super::{C5DataValue, C5RawValue, SerializationError};
+
+  pub fn deserialize_toml(raw_value: C5RawValue) -> Result<C5DataValue, SerializationError> {
+    let value_result: Result<::toml::Value, ::toml::de::Error>;
+
+    match raw_value {
+      C5RawValue::Bytes(data) => {
+        value_result = ::toml::from_str(std::str::from_utf8(data.as_slice())?);
+      }
+      C5RawValue::String(data) => {
+        value_result = ::toml::from_str(&data);
+      }
+    }
+
+    let value = value_result?;
+    Ok(toml_value_to_c5_value(value))
+  }
+
+  pub fn toml_value_to_c5_value(toml_value: ::toml::Value) -> C5DataValue {
+    match toml_value {
+      ::toml::Value::String(s) => C5DataValue::String(s),
+      ::toml::Value::Integer(i) => C5DataValue::Integer(i),
+      ::toml::Value::Float(f) => C5DataValue::Float(f),
+      ::toml::Value::Boolean(b) => C5DataValue::Boolean(b),
+      ::toml::Value::Datetime(dt) => C5DataValue::String(dt.to_string()),
+      ::toml::Value::Array(arr) => C5DataValue::Array(arr.into_iter().map(toml_value_to_c5_value).collect()),
+      ::toml::Value::Table(table) => C5DataValue::Map(map_from_toml_value_map(table.into_iter().collect())),
+    }
+  }
+
+  /// Converts a map of `toml::Value` into a map of `C5DataValue`.
+  pub(crate) fn map_from_toml_value_map(toml_map: HashMap<String, ::toml::Value>) -> HashMap<String, C5DataValue> {
+    toml_map
+      .into_iter()
+      .map(|(key, value)| (key, toml_value_to_c5_value(value)))
+      .collect()
+  }
 }
