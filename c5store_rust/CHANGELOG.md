@@ -21,6 +21,8 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 - `C5FileValueProviderSchema::path: String` is now `paths: Vec<String>`. A section writing `path` holds one entry.
 - `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`. It no longer panics on an absent `.provider`, `.key` or `.keyPath`.
 - A provider section that cannot be read is logged at error and left unregistered, where a malformed one was previously dropped in silence.
+- A provider path that does not exist now panics whether it is relative or absolute. The absolute case previously stored `Null` and abandoned every remaining entry and section, in `HashMap` order, so which other sections were left empty varied between runs.
+- Provider path panics name the section's key path and the path as written. They were bare `unwrap`s reporting an `io::Error` with neither.
 
 ### Deprecated
 

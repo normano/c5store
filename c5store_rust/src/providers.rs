@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -176,6 +175,30 @@ impl C5FileValueProvider {
       .insert(format_name.to_string(), Box::from(deserializer));
   }
 
+  /// The file an entry names, resolved against the base directory. A file a
+  /// section named and does not have is a deployment error rather than an empty
+  /// section. `hydrate` runs at registration, so every failure here ends the
+  /// process at boot. Each one names the section and the path, since a store is
+  /// assembled from several files and several provider sections and the operator
+  /// reading the message cannot otherwise tell which one is wrong.
+  fn resolve(&self, key_path: &str, path: &str) -> PathBuf {
+    let named = Path::new(path);
+    let joined = if named.is_absolute() {
+      named.to_path_buf()
+    } else {
+      Path::new(&self._base_dir_path).join(named)
+    };
+    if !joined.exists() {
+      panic!("[PROVIDER] `{key_path}` names `{path}`, which does not exist at {}", joined.display());
+    }
+    joined.canonicalize().unwrap_or_else(|e| {
+      panic!(
+        "[PROVIDER] `{key_path}` names `{path}`, which cannot be resolved at {}: {e}",
+        joined.display()
+      )
+    })
+  }
+
   fn schema_of(map: &HashMap<String, C5DataValue>) -> Result<C5FileValueProviderSchema, ProviderSchemaError> {
     let value_schema = C5ValueProviderSchema::from_map(map)?;
     let key_path = value_schema.value_key_path.clone();
@@ -218,19 +241,11 @@ impl C5ValueProvider for C5FileValueProvider {
   fn hydrate(&self, set_data_fn: &SetDataFn, _force: bool, context: &HydrateContext) {
     for (key_path, vp_schema) in self._key_data_map.iter() {
       for path in &vp_schema.paths {
-        let mut file_path = PathBuf::new();
-        file_path.push(Path::new(&**path));
+        let file_path = self.resolve(key_path, path);
 
-        if !file_path.is_absolute() {
-          file_path = PathBuf::from_iter(&[&*self._base_dir_path, &**path]).canonicalize().unwrap();
-        }
-
-        if !file_path.exists() {
-          set_data_fn(key_path.as_ref(), C5DataValue::Null);
-          return;
-        }
-
-        let file_bytes = fs::read(&file_path).unwrap();
+        let file_bytes = fs::read(&file_path).unwrap_or_else(|e| {
+          panic!("[PROVIDER] `{key_path}` cannot read {}: {e}", file_path.display());
+        });
         let deserialized_value: C5DataValue;
 
         if &*vp_schema.format != "raw" {
@@ -280,8 +295,8 @@ mod tests {
   use std::collections::HashMap;
 
   use super::{
-    C5FileValueProvider as Provider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER, ProviderSchemaError,
-    paths_of,
+    C5FileValueProvider as Provider, C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER,
+    ProviderSchemaError, paths_of,
   };
   use crate::{
     C5Store, C5StoreMgr, create_c5store, default_config_paths, providers::C5FileValueProvider, value::C5DataValue,
@@ -355,6 +370,36 @@ mod tests {
       ),
       "a bare string under `paths` is a mistake rather than a one-element list"
     );
+  }
+
+  /// A provider whose section names a file that is not there, hydrated. Both
+  /// spellings of the path take the same route, so one helper drives both cases.
+  fn hydrate_missing(path: &str) {
+    let mut provider = Provider::default("resources");
+    provider.register(&C5DataValue::Map(section(&[(
+      "path",
+      C5DataValue::String(path.to_owned()),
+    )])));
+    let set_data_fn: Box<super::SetDataFn> = Box::new(|_, _| {});
+    provider.hydrate(
+      &*set_data_fn,
+      false,
+      &crate::HydrateContext {
+        logger: std::sync::Arc::new(crate::ConsoleLogger {}),
+      },
+    );
+  }
+
+  #[test]
+  #[should_panic(expected = "`fsr` names `nowhere.json`")]
+  fn a_relative_path_that_is_not_there_ends_the_boot_and_names_the_section() {
+    hydrate_missing("nowhere.json");
+  }
+
+  #[test]
+  #[should_panic(expected = "`fsr` names `/nowhere/at/all.json`")]
+  fn an_absolute_path_that_is_not_there_ends_the_boot_the_same_way() {
+    hydrate_missing("/nowhere/at/all.json");
   }
 
   #[test]

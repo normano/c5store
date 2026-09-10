@@ -222,12 +222,11 @@ Section keys it reads: one of `path` or `paths` (required), `format` (default `"
 
 A section the provider cannot read is logged at error and not registered, so the keys it would have filled stay as whatever the files and the environment set. The cases are: neither `path` nor `paths`; both of them; an empty `paths`; a `paths` that is not a list of strings; a `path`, `format` or `encoding` that is not a string.
 
-Constraints worth knowing before you rely on it:
+Entries are literal file names. There is no interpolation and no globbing: a rung of the ladder varies the section by overriding `paths`, not by templating an entry.
 
-* A relative path that does not resolve **panics** during `hydrate`.
-* An absolute path that does not exist sets the key to `Null` and then returns, abandoning every remaining entry and every remaining section this provider was registered for. So every entry in a `paths` must exist.
-* A `format` naming an unregistered deserializer logs a warning and skips only that section.
-* A path that exists but cannot be read **panics**.
+A file a section names and does not have is a deployment error rather than an empty section. `hydrate` runs at registration, so every path failure **panics** at boot. Each message names the section's key path and the path as written, since neither is recoverable from an `io::Error` alone. The cases are a path that does not exist, one that cannot be resolved and one that exists but cannot be read.
+
+* A `format` naming an unregistered deserializer logs a warning and skips only that section, which is the one file-shaped failure that is not fatal.
 
 ### C5ValueProviderSchema
 

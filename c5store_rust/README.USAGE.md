@@ -556,11 +556,11 @@ The third argument is the refresh interval in seconds; `0` registers the provide
 
 `C5FileValueProvider::default` arrives with `json` and `yaml` deserializers registered, selected by the `format` key. `C5FileValueProvider::new` registers none, so `format: yaml` will not resolve there. Without a `format` the file content is stored as raw bytes. A `format` naming a deserializer that is not registered logs a warning and skips that entry.
 
-Each path is resolved against the base path given to the constructor unless it is already absolute. Two file-shaped failures behave badly enough to be worth designing around: a relative path that does not exist **panics** while resolving; an absolute path that does not exist stores `Null` and then abandons the rest of that provider's entries, so a later section the same provider was going to fill is silently left empty. Check that provider files exist before registering the provider.
+Each path is resolved against the base path given to the constructor unless it is already absolute. A file a section names and does not have **panics** at registration, whether the path was relative or absolute, because an application running on a silently empty section is worse than one that does not start. The message names the section and the path as written, so an operator with five config files and several provider sections knows which one to fix.
 
 ### A section as a ladder of its own
 
-Write `paths` instead of `path` to read several files in order, each one's keys landing over the last:
+Write `paths` instead of `path` to read several literal file names in order, each one's keys landing over the last. There is no interpolation and no globbing, for the reason below: a rung varies the section by overriding the list.
 
 ```yaml
 fsr:
