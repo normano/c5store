@@ -4,6 +4,10 @@ example:
     .provider: resources
     path: "example.json"
     format: "json"
+  layered:
+    .provider: resources
+    paths: ["example.json", "example.overlay.json"]
+    format: "json"
   secret:
     .provider: resources
     path: "some_secret.yaml"

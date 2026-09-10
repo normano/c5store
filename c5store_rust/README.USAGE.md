@@ -556,7 +556,38 @@ The third argument is the refresh interval in seconds; `0` registers the provide
 
 `C5FileValueProvider::default` arrives with `json` and `yaml` deserializers registered, selected by the `format` key. `C5FileValueProvider::new` registers none, so `format: yaml` will not resolve there. Without a `format` the file content is stored as raw bytes. A `format` naming a deserializer that is not registered logs a warning and skips that entry.
 
-`path` is resolved against the base path given to the constructor unless it is already absolute. Two file-shaped failures behave badly enough to be worth designing around: a relative `path` that does not exist **panics** while resolving, and an absolute `path` that does not exist stores `Null` and then abandons the rest of that provider's entries, so a later section the same provider was going to fill is silently left empty. Check that provider files exist before registering the provider.
+Each path is resolved against the base path given to the constructor unless it is already absolute. Two file-shaped failures behave badly enough to be worth designing around: a relative path that does not exist **panics** while resolving; an absolute path that does not exist stores `Null` and then abandons the rest of that provider's entries, so a later section the same provider was going to fill is silently left empty. Check that provider files exist before registering the provider.
+
+### A section as a ladder of its own
+
+Write `paths` instead of `path` to read several files in order, each one's keys landing over the last:
+
+```yaml
+fsr:
+  .provider: resource
+  paths: [app.toml, lab.toml]
+  format: toml
+```
+
+This is worth knowing for one reason: **a section is assembled from every config file that mentions it.** `common.yaml` and `lab.yaml` both writing under `fsr:` give the provider one merged section, so a rung of the ladder can override keys inside a provider directive, `paths` included:
+
+```yaml
+# common.yaml
+fsr:
+  .provider: resource
+  paths: [app.toml]
+  format: toml
+
+# lab.yaml
+fsr:
+  paths: [app.toml, lab.toml]
+```
+
+That is how a provider-filled section varies per environment. Nothing the ladder writes *under* a provider section becomes a config key, because a map holding `.provider` is stored whole as a directive rather than flattened, so `fsr: {document: {origin: ...}}` in a rung sets nothing. Overriding `paths` is the lever.
+
+`path` and `paths` are mutually exclusive and a section naming both is refused, because those keys merge like any others: accepting both would make the effective order depend on which files happened to contribute which key. Since they merge, adopting `paths` in a rung means the base section has to use `paths` too. The error says so, because the `path` you collided with is probably not in the file you are editing.
+
+A section the provider cannot read is logged at error and left unregistered, so its keys keep whatever the files and the environment set rather than half-filling.
 
 To provide values from somewhere else, implement `C5ValueProvider`:
 

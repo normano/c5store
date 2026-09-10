@@ -12,7 +12,15 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 
 ### Added
 
+- `C5FileValueProvider` sections take `paths`, a list read in order with each file's keys landing over the last one's, so a provider-filled section can be a ladder. Since a section merges across every config file that mentions it, a rung can override `paths` and vary the section per environment.
+- `ProviderSchemaError`, naming the section a refused provider directive came from.
+
 ### Changed
+
+- `path` and `paths` are mutually exclusive: a section naming both is refused rather than picking one, since the keys merge across config files and the effective order would otherwise depend on which file contributed which key.
+- `C5FileValueProviderSchema::path: String` is now `paths: Vec<String>`. A section writing `path` holds one entry.
+- `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`. It no longer panics on an absent `.provider`, `.key` or `.keyPath`.
+- A provider section that cannot be read is logged at error and left unregistered, where a malformed one was previously dropped in silence.
 
 ### Deprecated
 

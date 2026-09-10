@@ -26,6 +26,7 @@ A unified store for configuration and secrets, merging files, environment variab
   * [C5FileValueProvider](#c5filevalueprovider)
   * [C5ValueProviderSchema](#c5valueproviderschema)
   * [C5FileValueProviderSchema](#c5filevalueproviderschema)
+  * [ProviderSchemaError](#providerschemaerror)
   * [HydrateContext](#hydratecontext)
   * [SetDataFn](#setdatafn)
   * [C5RawValue](#c5rawvalue)
@@ -215,28 +216,39 @@ Fills sections from files on disk.
 * `fn new(base_path: &str) -> C5FileValueProvider`: no deserializers registered, so any `format` other than `raw` is skipped with a warning
 * `fn default(base_path: &str) -> C5FileValueProvider`: registers the `json` and `yaml` deserializers
 
-Section keys it reads: `path` (required), `format` (default `"raw"`, meaning the file is stored as `Bytes`) and `encoding` (default `"utf8"`, currently parsed and then unused).
+Section keys it reads: one of `path` or `paths` (required), `format` (default `"raw"`, meaning the file is stored as `Bytes`) and `encoding` (default `"utf8"`, currently parsed and then unused).
+
+`paths` is a list read in order, each file's keys written over the last one's, so a section can be a ladder of its own. `path` is the single-file form and the two are **mutually exclusive**: a section naming both is refused. They are exclusive because a section is assembled from every config file that mentions it, so accepting both would make the effective order depend on which files happened to contribute which key.
+
+A section the provider cannot read is logged at error and not registered, so the keys it would have filled stay as whatever the files and the environment set. The cases are: neither `path` nor `paths`; both of them; an empty `paths`; a `paths` that is not a list of strings; a `path`, `format` or `encoding` that is not a string.
 
 Constraints worth knowing before you rely on it:
 
-* A relative `path` that does not resolve **panics** during `hydrate`.
-* An absolute `path` that does not exist sets the key to `Null` and then returns, abandoning every remaining section this provider was registered for.
+* A relative path that does not resolve **panics** during `hydrate`.
+* An absolute path that does not exist sets the key to `Null` and then returns, abandoning every remaining entry and every remaining section this provider was registered for. So every entry in a `paths` must exist.
 * A `format` naming an unregistered deserializer logs a warning and skips only that section.
-* A `path` that exists but cannot be read **panics**.
+* A path that exists but cannot be read **panics**.
 
 ### C5ValueProviderSchema
 
 The three loader-injected keys of a provider section.
 
 * `value_provider: String` (from `.provider`), `value_key_path: String` (from `.keyPath`), `value_key: String` (from `.key`)
-* `fn from_map(map: &HashMap<String, C5DataValue>) -> Result<C5ValueProviderSchema, ()>`: panics if any of the three keys is absent, and returns `Err(())` if one is present but not a string
+* `fn from_map(map: &HashMap<String, C5DataValue>) -> Result<C5ValueProviderSchema, ProviderSchemaError>`: answers `Missing` for a key that is absent and `NotAString` for one that is present but not a string
 
 ### C5FileValueProviderSchema
 
 One registered file section.
 
-* `value_schema: C5ValueProviderSchema`, `path: String`, `encoding: String`, `format: String`
-* `fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema`
+* `value_schema: C5ValueProviderSchema`, `paths: Vec<String>`, `encoding: String`, `format: String`
+* `fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema`: one entry in `paths`
+
+### ProviderSchemaError
+
+Why a provider section could not be read. Every variant names the section's key path, since a section is assembled from every config file that mentions it and the offending key is often not in the file being edited.
+
+* Variants: `Missing { key_path, key }`, `NotAString { key_path, key }`, `PathAndPaths { key_path }`, `NoPath { key_path }`, `PathsNotStrings { key_path }`, `PathsEmpty { key_path }`
+* Implements `std::error::Error` and `Display`
 
 ### HydrateContext
 
