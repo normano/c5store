@@ -17,10 +17,7 @@ pub enum C5RawValue {
   String(String),
 }
 
-/// The values a `paths` entry may name. A closed set rather than the process
-/// environment, deliberately: a template picks a rung of a ladder c5store knows
-/// about, it does not compute a filename, so a config file cannot reach a
-/// variable c5store did not intend to expose.
+/// The only variables a `paths` entry may name; the process environment is deliberately out of reach.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LadderVars {
   pub release_env: String,
@@ -39,18 +36,14 @@ impl LadderVars {
   }
 }
 
-/// One file a section names. An entry that resolved a variable is a rung of a
-/// ladder, so one that is not there is skipped; a literal path that is not
-/// there ends the boot, since an author who typed a name meant it.
+/// One file a section names. Missing, a templated entry is skipped and a literal one ends the boot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathEntry {
   pub path: String,
   pub templated: bool,
 }
 
-/// Why a provider section could not be read. Every variant names the section
-/// it came from, since a section is assembled from every config file that
-/// mentions it and the offending key is often not in the file being edited.
+/// Why a provider section could not be read.
 #[derive(Error, Debug)]
 pub enum ProviderSchemaError {
   #[error("`{key_path}` is missing `{key}`")]
@@ -81,9 +74,7 @@ pub enum ProviderSchemaError {
   },
 }
 
-/// A substituted value has to be one path segment, so a rung can only choose
-/// among files the deployment already put in the config directory. Without this
-/// a variable reaching `..` or a separator turns a rung into an arbitrary read.
+/// Rejects `..` and separators so a substituted variable cannot leave the config directory.
 fn one_path_segment(value: &str) -> bool {
   !value.is_empty() && value != "." && value != ".." && !value.contains('/') && !value.contains('\\')
 }
@@ -117,8 +108,6 @@ impl C5ValueProviderSchema {
   }
 }
 
-/// One required string from a section, named by the section it belongs to so a
-/// message points at the right place even when the key came from another file.
 fn string_at(
   map: &HashMap<String, C5DataValue>,
   key: &'static str,
@@ -137,10 +126,8 @@ fn string_at(
   }
 }
 
-/// The files a section names, in the order they are read, with a later file's
-/// keys landing over an earlier one's. `path` and `paths` are exclusive: they
-/// merge across the ladder, so accepting both would make the effective order
-/// depend on which files happened to mention the section.
+/// Entries in read order, later files winning. `path` and `paths` are exclusive:
+/// both merge across the ladder, so mixing them makes the order depend on which files mention the section.
 fn paths_of(
   map: &HashMap<String, C5DataValue>,
   key_path: &str,
@@ -184,9 +171,6 @@ fn paths_of(
   written.iter().map(|path| expanded(path, key_path, vars)).collect()
 }
 
-/// One entry with its variables resolved. Only `release_env`, `env` and
-/// `region` resolve. Each has to come out a single path segment, so the
-/// worst a template can do is name a file beside the ones already there.
 fn expanded(path: &str, key_path: &str, vars: Option<&LadderVars>) -> Result<PathEntry, ProviderSchemaError> {
   if !path.contains('$') {
     return Ok(PathEntry {
@@ -220,8 +204,7 @@ fn expanded(path: &str, key_path: &str, vars: Option<&LadderVars>) -> Result<Pat
 
 pub struct C5FileValueProviderSchema {
   pub value_schema: C5ValueProviderSchema,
-  /// Read in order, a later file's keys landing over an earlier one's. A
-  /// section writing `path` has one entry here.
+  /// Read in order, later files winning. `path` yields exactly one.
   pub paths: Vec<PathEntry>,
   pub encoding: String,
   pub format: String,
@@ -245,9 +228,7 @@ pub struct C5FileValueProvider {
   _base_dir_path: String,
   _key_data_map: HashMap<String, C5FileValueProviderSchema>,
   _deserializer: HashMap<String, Box<C5ValueDeserializer>>,
-  /// What a `paths` entry's variables resolve against. Absent, an entry naming
-  /// one is refused rather than read as a literal, so a template that silently
-  /// did nothing cannot reach a running process.
+  /// Absent, a templated entry is refused rather than read as a literal.
   _vars: Option<LadderVars>,
 }
 
@@ -270,9 +251,7 @@ impl C5FileValueProvider {
     return provider;
   }
 
-  /// The ladder a `paths` entry's variables name. Given here rather than
-  /// through the store because only this provider reads paths, so nothing else
-  /// gains a way to interpolate.
+  /// The values a `paths` entry's variables resolve to.
   pub fn with_vars(mut self, vars: LadderVars) -> C5FileValueProvider {
     self._vars = Some(vars);
     return self;
@@ -288,12 +267,7 @@ impl C5FileValueProvider {
       .insert(format_name.to_string(), Box::from(deserializer));
   }
 
-  /// The file an entry names, resolved against the base directory. A file a
-  /// section named and does not have is a deployment error rather than an empty
-  /// section. `hydrate` runs at registration, so every failure here ends the
-  /// process at boot. Each one names the section and the path, since a store is
-  /// assembled from several files and several provider sections and the operator
-  /// reading the message cannot otherwise tell which one is wrong.
+  /// Panics on a missing literal entry or an unresolvable path; `hydrate` runs at registration, so this fails the boot.
   fn resolve(&self, key_path: &str, entry: &PathEntry) -> Option<PathBuf> {
     let path = &entry.path;
     let named = Path::new(path);
@@ -424,8 +398,7 @@ mod tests {
     C5Store, C5StoreMgr, create_c5store, default_config_paths, providers::C5FileValueProvider, value::C5DataValue,
   };
 
-  /// A section carrying the three keys the loader injects, plus whatever the
-  /// case under test adds.
+  /// A section with the three loader-injected keys plus `extra`.
   fn section(extra: &[(&str, C5DataValue)]) -> HashMap<String, C5DataValue> {
     let mut map = HashMap::new();
     map.insert(CONFIG_KEY_PROVIDER.to_owned(), C5DataValue::String("file".to_owned()));
@@ -509,8 +482,7 @@ mod tests {
     );
   }
 
-  /// A provider whose section names a file that is not there, hydrated. Both
-  /// spellings of the path take the same route, so one helper drives both cases.
+  /// Hydrates a provider whose section names a missing file.
   fn hydrate_missing(path: &str) {
     let mut provider = Provider::default("resources");
     provider.register(&C5DataValue::Map(section(&[(
