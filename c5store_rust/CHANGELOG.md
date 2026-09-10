@@ -12,18 +12,7 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 
 ### Added
 
-- `paths` on a `C5FileValueProvider` section: files read in order, a later file's keys winning.
-- A `paths` entry may name `${release_env}`, `${env}` or `${region}`, resolved by `C5FileValueProvider::with_vars`. Literal entries are required, interpolated ones optional. A substituted value must be a single path segment.
-- `LadderVars`, `PathEntry` and `ProviderSchemaError`.
-
 ### Changed
-
-- `path` and `paths` are mutually exclusive; a section naming both is refused.
-- `C5FileValueProviderSchema::path: String` is now `paths: Vec<PathEntry>`.
-- `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`; an absent loader key no longer panics.
-- An unreadable provider section is logged and left unregistered, not dropped silently.
-- A missing provider path panics whether relative or absolute. The absolute case stored `Null` and abandoned the remaining entries and sections.
-- Provider path panics name the section and the path.
 
 ### Deprecated
 
@@ -32,6 +21,21 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 ### Fixed
 
 ### Security
+
+## [0.5.0] - 2026-09-09
+
+### Added
+- `paths` on a `C5FileValueProvider` section: files read in order, a later file's keys winning.
+- A `paths` entry may name `${release_env}`, `${env}` or `${region}`, resolved by `C5FileValueProvider::with_vars`. Literal entries are required, interpolated ones optional. A substituted value must be a single path segment.
+- `LadderVars`, `PathEntry` and `ProviderSchemaError`.
+
+### Changed
+- `path` and `paths` are mutually exclusive; a section naming both is refused.
+- `C5FileValueProviderSchema::path: String` is now `paths: Vec<PathEntry>`.
+- `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`; an absent loader key no longer panics.
+- An unreadable provider section is logged and left unregistered, not dropped silently.
+- A missing provider path panics whether relative or absolute. The absolute case stored `Null` and abandoned the remaining entries and sections.
+- Provider path panics name the section and the path.
 
 ## [0.4.14] - 2026-09-06
 
