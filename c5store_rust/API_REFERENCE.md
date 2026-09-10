@@ -26,6 +26,8 @@ A unified store for configuration and secrets, merging files, environment variab
   * [C5FileValueProvider](#c5filevalueprovider)
   * [C5ValueProviderSchema](#c5valueproviderschema)
   * [C5FileValueProviderSchema](#c5filevalueproviderschema)
+  * [LadderVars](#laddervars)
+  * [PathEntry](#pathentry)
   * [ProviderSchemaError](#providerschemaerror)
   * [HydrateContext](#hydratecontext)
   * [SetDataFn](#setdatafn)
@@ -215,6 +217,7 @@ Fills sections from files on disk.
 
 * `fn new(base_path: &str) -> C5FileValueProvider`: no deserializers registered, so any `format` other than `raw` is skipped with a warning
 * `fn default(base_path: &str) -> C5FileValueProvider`: registers the `json` and `yaml` deserializers
+* `fn with_vars(self, vars: LadderVars) -> C5FileValueProvider`: what a `paths` entry's variables resolve against. Given to the provider rather than to the store, so no other provider gains a way to interpolate
 
 Section keys it reads: one of `path` or `paths` (required), `format` (default `"raw"`, meaning the file is stored as `Bytes`) and `encoding` (default `"utf8"`, currently parsed and then unused).
 
@@ -222,7 +225,11 @@ Section keys it reads: one of `path` or `paths` (required), `format` (default `"
 
 A section the provider cannot read is logged at error and not registered, so the keys it would have filled stay as whatever the files and the environment set. The cases are: neither `path` nor `paths`; both of them; an empty `paths`; a `paths` that is not a list of strings; a `path`, `format` or `encoding` that is not a string.
 
-Entries are literal file names. There is no interpolation and no globbing: a rung of the ladder varies the section by overriding `paths`, not by templating an entry.
+An entry may name a variable, `"${release_env}.toml"`, resolved by `shellexpand`'s `$VAR` and `${VAR}` syntax against the `LadderVars` given to `with_vars`. Only `release_env`, `env` and `region` resolve, matched case-insensitively. There is no globbing.
+
+**A literal entry is required and an interpolated one is optional.** A file named by hand that is not there ends the boot; a resolved entry that is not there is skipped at debug, which matches the outer ladder, where four of the five paths `default_config_paths` builds are normally absent. So one section can carry the whole ladder and no other config file has to mention it.
+
+Two rules keep a template from becoming an arbitrary read. The variable set is closed, so a section cannot name a process environment variable that c5store did not intend to expose. And each substituted value must be a single path segment: empty, `.`, `..`, `/` and `\` are refused, which is what stops a variable reaching outside the config directory. A section naming a variable with no `LadderVars` set is refused rather than read as a literal.
 
 A file a section names and does not have is a deployment error rather than an empty section. `hydrate` runs at registration, so every path failure **panics** at boot. Each message names the section's key path and the path as written, since neither is recoverable from an `io::Error` alone. The cases are a path that does not exist, one that cannot be resolved and one that exists but cannot be read.
 
@@ -239,14 +246,27 @@ The three loader-injected keys of a provider section.
 
 One registered file section.
 
-* `value_schema: C5ValueProviderSchema`, `paths: Vec<String>`, `encoding: String`, `format: String`
-* `fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema`: one entry in `paths`
+* `value_schema: C5ValueProviderSchema`, `paths: Vec<PathEntry>`, `encoding: String`, `format: String`
+* `fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema`: one literal entry in `paths`
+
+### LadderVars
+
+What a `paths` entry's variables resolve against. A struct rather than a map, so the set is closed by construction.
+
+* `release_env: String`, `env: String`, `region: String`
+
+### PathEntry
+
+One file a section names, after its variables resolved.
+
+* `path: String`, `templated: bool`
+* `templated` decides what a missing file means: `false` ends the boot, `true` is skipped
 
 ### ProviderSchemaError
 
 Why a provider section could not be read. Every variant names the section's key path, since a section is assembled from every config file that mentions it and the offending key is often not in the file being edited.
 
-* Variants: `Missing { key_path, key }`, `NotAString { key_path, key }`, `PathAndPaths { key_path }`, `NoPath { key_path }`, `PathsNotStrings { key_path }`, `PathsEmpty { key_path }`
+* Variants: `Missing { key_path, key }`, `NotAString { key_path, key }`, `PathAndPaths { key_path }`, `NoPath { key_path }`, `PathsNotStrings { key_path }`, `PathsEmpty { key_path }`, `UnknownVariable { key_path, variable }`, `NoVariables { key_path }`, `NotOnePathSegment { key_path, variable, value }`
 * Implements `std::error::Error` and `Display`
 
 ### HydrateContext

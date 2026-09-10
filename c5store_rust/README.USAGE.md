@@ -560,32 +560,39 @@ Each path is resolved against the base path given to the constructor unless it i
 
 ### A section as a ladder of its own
 
-Write `paths` instead of `path` to read several literal file names in order, each one's keys landing over the last. There is no interpolation and no globbing, for the reason below: a rung varies the section by overriding the list.
+Write `paths` instead of `path` to read several files in order, each one's keys landing over the last. An entry may name the environment, so one section carries the whole ladder:
 
 ```yaml
 fsr:
   .provider: resource
-  paths: [app.toml, lab.toml]
+  paths: [app.toml, "${release_env}.toml"]
   format: toml
 ```
 
-This is worth knowing for one reason: **a section is assembled from every config file that mentions it.** `common.yaml` and `lab.yaml` both writing under `fsr:` give the provider one merged section, so a rung of the ladder can override keys inside a provider directive, `paths` included:
+```rust
+use c5store::providers::{C5FileValueProvider, LadderVars};
 
-```yaml
-# common.yaml
-fsr:
-  .provider: resource
-  paths: [app.toml]
-  format: toml
-
-# lab.yaml
-fsr:
-  paths: [app.toml, lab.toml]
+let provider = C5FileValueProvider::default("config/").with_vars(LadderVars {
+  release_env: env_config.release_env.clone(),
+  env: env_config.app_env.clone(),
+  region: env_config.app_region.clone(),
+});
 ```
 
-That is how a provider-filled section varies per environment. Nothing the ladder writes *under* a provider section becomes a config key, because a map holding `.provider` is stored whole as a directive rather than flattened, so `fsr: {document: {origin: ...}}` in a rung sets nothing. Overriding `paths` is the lever.
+**A literal entry is required and an interpolated one is optional.** `app.toml` must exist and a missing one ends the boot. `lab.toml` is a rung, so `RELEASE_ENV=lab` reads it and a machine with no overlay of its own simply does not. That asymmetry is deliberate. It matches the outer ladder, where four of the five paths `default_config_paths` builds are normally absent. No other config file has to mention the section at all.
 
-`path` and `paths` are mutually exclusive and a section naming both is refused, because those keys merge like any others: accepting both would make the effective order depend on which files happened to contribute which key. Since they merge, adopting `paths` in a rung means the base section has to use `paths` too. The error says so, because the `path` you collided with is probably not in the file you are editing.
+Two rules keep this from being a way to read arbitrary files. Only `release_env`, `env` and `region` resolve, so a config file cannot reach a process environment variable that c5store did not mean to expose. And a substituted value has to be a single path segment, so `RELEASE_ENV=../../../../etc/passwd` is refused at registration rather than read:
+
+```
+[PROVIDER] `fsr` resolves `${release_env}` to `../../../../etc/passwd`, which is
+not a single path segment; a rung names a file beside the others, never a path to one
+```
+
+A template with no `with_vars` is refused too, rather than quietly treated as a literal filename.
+
+**What you cannot do is override a key inside a provider section from a rung.** Provider sections are taken out of each file *before* the files merge, so a `fsr:` block in `lab.yaml` with no `.provider` of its own is never recognised as a directive: it stays ordinary config and whatever reads that branch sees an unexpected key. Interpolation exists so you never need to.
+
+`path` and `paths` are mutually exclusive and a section naming both is refused, because accepting both would make the effective order depend on which key was written where.
 
 A section the provider cannot read is logged at error and left unregistered, so its keys keep whatever the files and the environment set rather than half-filling.
 

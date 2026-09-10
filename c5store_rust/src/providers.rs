@@ -17,6 +17,37 @@ pub enum C5RawValue {
   String(String),
 }
 
+/// The values a `paths` entry may name. A closed set rather than the process
+/// environment, deliberately: a template picks a rung of a ladder c5store knows
+/// about, it does not compute a filename, so a config file cannot reach a
+/// variable c5store did not intend to expose.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LadderVars {
+  pub release_env: String,
+  pub env: String,
+  pub region: String,
+}
+
+impl LadderVars {
+  fn get(&self, name: &str) -> Option<&str> {
+    match name.to_lowercase().as_str() {
+      "release_env" => Some(&self.release_env),
+      "env" => Some(&self.env),
+      "region" => Some(&self.region),
+      _ => None,
+    }
+  }
+}
+
+/// One file a section names. An entry that resolved a variable is a rung of a
+/// ladder, so one that is not there is skipped; a literal path that is not
+/// there ends the boot, since an author who typed a name meant it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathEntry {
+  pub path: String,
+  pub templated: bool,
+}
+
 /// Why a provider section could not be read. Every variant names the section
 /// it came from, since a section is assembled from every config file that
 /// mentions it and the offending key is often not in the file being edited.
@@ -36,6 +67,25 @@ pub enum ProviderSchemaError {
   PathsNotStrings { key_path: String },
   #[error("`{key_path}` has an empty `paths`")]
   PathsEmpty { key_path: String },
+  #[error("`{key_path}` names `${{{variable}}}`, which is not one of release_env, env or region")]
+  UnknownVariable { key_path: String, variable: String },
+  #[error("`{key_path}` names a variable, but the provider was given none")]
+  NoVariables { key_path: String },
+  #[error(
+    "`{key_path}` resolves `${{{variable}}}` to `{value}`, which is not a single path segment; a rung names a file beside the others, never a path to one"
+  )]
+  NotOnePathSegment {
+    key_path: String,
+    variable: String,
+    value: String,
+  },
+}
+
+/// A substituted value has to be one path segment, so a rung can only choose
+/// among files the deployment already put in the config directory. Without this
+/// a variable reaching `..` or a separator turns a rung into an arbitrary read.
+fn one_path_segment(value: &str) -> bool {
+  !value.is_empty() && value != "." && value != ".." && !value.contains('/') && !value.contains('\\')
 }
 
 pub type C5Serializer = dyn Fn(C5DataValue) -> C5RawValue + Send + Sync;
@@ -91,17 +141,25 @@ fn string_at(
 /// keys landing over an earlier one's. `path` and `paths` are exclusive: they
 /// merge across the ladder, so accepting both would make the effective order
 /// depend on which files happened to mention the section.
-fn paths_of(map: &HashMap<String, C5DataValue>, key_path: &str) -> Result<Vec<String>, ProviderSchemaError> {
+fn paths_of(
+  map: &HashMap<String, C5DataValue>,
+  key_path: &str,
+  vars: Option<&LadderVars>,
+) -> Result<Vec<PathEntry>, ProviderSchemaError> {
   let named = |key: &str| map.get(key).is_some();
-  match (named("path"), named("paths")) {
-    (true, true) => Err(ProviderSchemaError::PathAndPaths {
-      key_path: key_path.to_owned(),
-    }),
-    (true, false) => Ok(vec![string_at(map, "path", key_path)?]),
-    (false, true) => match map.get("paths") {
-      Some(C5DataValue::Array(entries)) if entries.is_empty() => Err(ProviderSchemaError::PathsEmpty {
+  let written = match (named("path"), named("paths")) {
+    (true, true) => {
+      return Err(ProviderSchemaError::PathAndPaths {
         key_path: key_path.to_owned(),
-      }),
+      });
+    }
+    (true, false) => vec![string_at(map, "path", key_path)?],
+    (false, true) => match map.get("paths") {
+      Some(C5DataValue::Array(entries)) if entries.is_empty() => {
+        return Err(ProviderSchemaError::PathsEmpty {
+          key_path: key_path.to_owned(),
+        });
+      }
       Some(C5DataValue::Array(entries)) => entries
         .iter()
         .map(|entry| match entry {
@@ -110,22 +168,61 @@ fn paths_of(map: &HashMap<String, C5DataValue>, key_path: &str) -> Result<Vec<St
             key_path: key_path.to_owned(),
           }),
         })
-        .collect(),
-      _ => Err(ProviderSchemaError::PathsNotStrings {
-        key_path: key_path.to_owned(),
-      }),
+        .collect::<Result<Vec<String>, _>>()?,
+      _ => {
+        return Err(ProviderSchemaError::PathsNotStrings {
+          key_path: key_path.to_owned(),
+        });
+      }
     },
-    (false, false) => Err(ProviderSchemaError::NoPath {
-      key_path: key_path.to_owned(),
-    }),
+    (false, false) => {
+      return Err(ProviderSchemaError::NoPath {
+        key_path: key_path.to_owned(),
+      });
+    }
+  };
+  written.iter().map(|path| expanded(path, key_path, vars)).collect()
+}
+
+/// One entry with its variables resolved. Only `release_env`, `env` and
+/// `region` resolve. Each has to come out a single path segment, so the
+/// worst a template can do is name a file beside the ones already there.
+fn expanded(path: &str, key_path: &str, vars: Option<&LadderVars>) -> Result<PathEntry, ProviderSchemaError> {
+  if !path.contains('$') {
+    return Ok(PathEntry {
+      path: path.to_owned(),
+      templated: false,
+    });
   }
+  let Some(vars) = vars else {
+    return Err(ProviderSchemaError::NoVariables {
+      key_path: key_path.to_owned(),
+    });
+  };
+  let resolved = shellexpand::env_with_context(path, |name: &str| match vars.get(name) {
+    None => Err(ProviderSchemaError::UnknownVariable {
+      key_path: key_path.to_owned(),
+      variable: name.to_owned(),
+    }),
+    Some(value) if !one_path_segment(value) => Err(ProviderSchemaError::NotOnePathSegment {
+      key_path: key_path.to_owned(),
+      variable: name.to_owned(),
+      value: value.to_owned(),
+    }),
+    Some(value) => Ok(Some(value.to_owned())),
+  })
+  .map_err(|e| e.cause)?;
+  Ok(PathEntry {
+    path: resolved.into_owned(),
+    templated: true,
+  })
 }
 
 pub struct C5FileValueProviderSchema {
   pub value_schema: C5ValueProviderSchema,
   /// Read in order, a later file's keys landing over an earlier one's. A
   /// section writing `path` has one entry here.
-  pub paths: Vec<String>,
+  pub paths: Vec<PathEntry>,
   pub encoding: String,
   pub format: String,
 }
@@ -134,7 +231,10 @@ impl C5FileValueProviderSchema {
   pub fn new_raw_utf8(value_schema: C5ValueProviderSchema, path: &str) -> C5FileValueProviderSchema {
     return C5FileValueProviderSchema {
       value_schema,
-      paths: vec![path.to_string()],
+      paths: vec![PathEntry {
+        path: path.to_string(),
+        templated: false,
+      }],
       encoding: "utf8".to_string(),
       format: "raw".to_string(),
     };
@@ -145,6 +245,10 @@ pub struct C5FileValueProvider {
   _base_dir_path: String,
   _key_data_map: HashMap<String, C5FileValueProviderSchema>,
   _deserializer: HashMap<String, Box<C5ValueDeserializer>>,
+  /// What a `paths` entry's variables resolve against. Absent, an entry naming
+  /// one is refused rather than read as a literal, so a template that silently
+  /// did nothing cannot reach a running process.
+  _vars: Option<LadderVars>,
 }
 
 impl C5FileValueProvider {
@@ -153,6 +257,7 @@ impl C5FileValueProvider {
       _base_dir_path: base_path.to_string(),
       _key_data_map: HashMap::new(),
       _deserializer: HashMap::new(),
+      _vars: None,
     };
   }
 
@@ -163,6 +268,14 @@ impl C5FileValueProvider {
     provider.register_deserializer("yaml", deserialize_yaml);
 
     return provider;
+  }
+
+  /// The ladder a `paths` entry's variables name. Given here rather than
+  /// through the store because only this provider reads paths, so nothing else
+  /// gains a way to interpolate.
+  pub fn with_vars(mut self, vars: LadderVars) -> C5FileValueProvider {
+    self._vars = Some(vars);
+    return self;
   }
 
   pub fn register_deserializer<Deserializer>(&mut self, format_name: &str, deserializer: Deserializer)
@@ -181,7 +294,8 @@ impl C5FileValueProvider {
   /// process at boot. Each one names the section and the path, since a store is
   /// assembled from several files and several provider sections and the operator
   /// reading the message cannot otherwise tell which one is wrong.
-  fn resolve(&self, key_path: &str, path: &str) -> PathBuf {
+  fn resolve(&self, key_path: &str, entry: &PathEntry) -> Option<PathBuf> {
+    let path = &entry.path;
     let named = Path::new(path);
     let joined = if named.is_absolute() {
       named.to_path_buf()
@@ -189,17 +303,23 @@ impl C5FileValueProvider {
       Path::new(&self._base_dir_path).join(named)
     };
     if !joined.exists() {
+      if entry.templated {
+        log::debug!(
+          "[PROVIDER] `{key_path}` has no `{path}`, which a resolved entry is allowed to be missing"
+        );
+        return None;
+      }
       panic!("[PROVIDER] `{key_path}` names `{path}`, which does not exist at {}", joined.display());
     }
-    joined.canonicalize().unwrap_or_else(|e| {
+    Some(joined.canonicalize().unwrap_or_else(|e| {
       panic!(
         "[PROVIDER] `{key_path}` names `{path}`, which cannot be resolved at {}: {e}",
         joined.display()
       )
-    })
+    }))
   }
 
-  fn schema_of(map: &HashMap<String, C5DataValue>) -> Result<C5FileValueProviderSchema, ProviderSchemaError> {
+  fn schema_of(&self, map: &HashMap<String, C5DataValue>) -> Result<C5FileValueProviderSchema, ProviderSchemaError> {
     let value_schema = C5ValueProviderSchema::from_map(map)?;
     let key_path = value_schema.value_key_path.clone();
     let optional = |key: &'static str, default: &str| match map.get(key) {
@@ -211,7 +331,7 @@ impl C5FileValueProvider {
       None => Ok(default.to_owned()),
     };
     Ok(C5FileValueProviderSchema {
-      paths: paths_of(map, &value_schema.value_key_path)?,
+      paths: paths_of(map, &value_schema.value_key_path, self._vars.as_ref())?,
       encoding: optional("encoding", "utf8")?,
       format: optional("format", "raw")?,
       value_schema,
@@ -224,7 +344,7 @@ impl C5ValueProvider for C5FileValueProvider {
     let C5DataValue::Map(map) = data else {
       return;
     };
-    match Self::schema_of(map) {
+    match self.schema_of(map) {
       Ok(vp_data) => {
         self
           ._key_data_map
@@ -240,8 +360,10 @@ impl C5ValueProvider for C5FileValueProvider {
 
   fn hydrate(&self, set_data_fn: &SetDataFn, _force: bool, context: &HydrateContext) {
     for (key_path, vp_schema) in self._key_data_map.iter() {
-      for path in &vp_schema.paths {
-        let file_path = self.resolve(key_path, path);
+      for entry in &vp_schema.paths {
+        let Some(file_path) = self.resolve(key_path, entry) else {
+          continue;
+        };
 
         let file_bytes = fs::read(&file_path).unwrap_or_else(|e| {
           panic!("[PROVIDER] `{key_path}` cannot read {}: {e}", file_path.display());
@@ -296,7 +418,7 @@ mod tests {
 
   use super::{
     C5FileValueProvider as Provider, C5ValueProvider, CONFIG_KEY_KEYNAME, CONFIG_KEY_KEYPATH, CONFIG_KEY_PROVIDER,
-    ProviderSchemaError, paths_of,
+    LadderVars, PathEntry, ProviderSchemaError, paths_of,
   };
   use crate::{
     C5Store, C5StoreMgr, create_c5store, default_config_paths, providers::C5FileValueProvider, value::C5DataValue,
@@ -319,15 +441,30 @@ mod tests {
     C5DataValue::Array(values.iter().map(|v| C5DataValue::String((*v).to_owned())).collect())
   }
 
+  fn literal(path: &str) -> PathEntry {
+    PathEntry {
+      path: path.to_owned(),
+      templated: false,
+    }
+  }
+
+  fn lab() -> LadderVars {
+    LadderVars {
+      release_env: "lab".to_owned(),
+      env: "staging".to_owned(),
+      region: "sfo1".to_owned(),
+    }
+  }
+
   #[test]
   fn path_is_one_entry_and_paths_is_the_list_in_order() {
     let one = section(&[("path", C5DataValue::String("app.toml".to_owned()))]);
-    assert_eq!(paths_of(&one, "fsr").unwrap(), vec!["app.toml".to_owned()]);
+    assert_eq!(paths_of(&one, "fsr", None).unwrap(), vec![literal("app.toml")]);
 
     let many = section(&[("paths", strings(&["app.toml", "lab.toml"]))]);
     assert_eq!(
-      paths_of(&many, "fsr").unwrap(),
-      vec!["app.toml".to_owned(), "lab.toml".to_owned()],
+      paths_of(&many, "fsr", None).unwrap(),
+      vec![literal("app.toml"), literal("lab.toml")],
       "order is the list's, so a later file's keys land over an earlier one's"
     );
   }
@@ -338,7 +475,7 @@ mod tests {
       ("path", C5DataValue::String("app.toml".to_owned())),
       ("paths", strings(&["app.toml", "lab.toml"])),
     ]);
-    let message = match paths_of(&both, "fsr") {
+    let message = match paths_of(&both, "fsr", None) {
       Err(e @ ProviderSchemaError::PathAndPaths { .. }) => e.to_string(),
       other => panic!("both keys must be refused, got {other:?}"),
     };
@@ -352,20 +489,20 @@ mod tests {
   #[test]
   fn a_section_naming_no_file_or_an_unusable_paths_is_refused() {
     assert!(matches!(
-      paths_of(&section(&[]), "fsr"),
+      paths_of(&section(&[]), "fsr", None),
       Err(ProviderSchemaError::NoPath { .. })
     ));
     assert!(matches!(
-      paths_of(&section(&[("paths", C5DataValue::Array(vec![]))]), "fsr"),
+      paths_of(&section(&[("paths", C5DataValue::Array(vec![]))]), "fsr", None),
       Err(ProviderSchemaError::PathsEmpty { .. })
     ));
     assert!(matches!(
-      paths_of(&section(&[("paths", C5DataValue::Array(vec![C5DataValue::Integer(1)]))]), "fsr"),
+      paths_of(&section(&[("paths", C5DataValue::Array(vec![C5DataValue::Integer(1)]))]), "fsr", None),
       Err(ProviderSchemaError::PathsNotStrings { .. })
     ));
     assert!(
       matches!(
-        paths_of(&section(&[("paths", C5DataValue::String("app.toml".to_owned()))]), "fsr"),
+        paths_of(&section(&[("paths", C5DataValue::String("app.toml".to_owned()))]), "fsr", None),
         Err(ProviderSchemaError::PathsNotStrings { .. })
       ),
       "a bare string under `paths` is a mistake rather than a one-element list"
@@ -403,8 +540,95 @@ mod tests {
   }
 
   #[test]
+  fn a_template_resolves_against_the_ladder_and_is_marked_a_rung() {
+    let map = section(&[("paths", strings(&["app.toml", "${release_env}.toml"]))]);
+    assert_eq!(
+      paths_of(&map, "fsr", Some(&lab())).unwrap(),
+      vec![
+        literal("app.toml"),
+        PathEntry {
+          path: "lab.toml".to_owned(),
+          templated: true,
+        }
+      ],
+      "the literal stays required, the resolved one is a rung"
+    );
+
+    let all_three = section(&[("paths", strings(&["${env}-${region}.toml"]))]);
+    assert_eq!(
+      paths_of(&all_three, "fsr", Some(&lab())).unwrap()[0].path,
+      "staging-sfo1.toml"
+    );
+  }
+
+  #[test]
+  fn only_the_three_ladder_variables_resolve() {
+    let reached_for = section(&[("paths", strings(&["${aws_secret_access_key}.toml"]))]);
+    match paths_of(&reached_for, "fsr", Some(&lab())) {
+      Err(ProviderSchemaError::UnknownVariable { variable, .. }) => {
+        assert_eq!(variable, "aws_secret_access_key", "and the name is not echoed anywhere else")
+      }
+      other => panic!("a variable outside the closed set must be refused, got {other:?}"),
+    }
+
+    let no_vars = section(&[("paths", strings(&["${release_env}.toml"]))]);
+    assert!(
+      matches!(
+        paths_of(&no_vars, "fsr", None),
+        Err(ProviderSchemaError::NoVariables { .. })
+      ),
+      "a template with no ladder is refused rather than read as a literal, so it cannot silently do nothing"
+    );
+  }
+
+  #[test]
+  fn a_variable_that_is_not_one_path_segment_is_refused() {
+    for value in ["../../../../etc/passwd", "/etc/passwd", "a/b", "..", ".", ""] {
+      let vars = LadderVars {
+        release_env: value.to_owned(),
+        ..lab()
+      };
+      let map = section(&[("paths", strings(&["${release_env}.toml"]))]);
+      assert!(
+        matches!(
+          paths_of(&map, "fsr", Some(&vars)),
+          Err(ProviderSchemaError::NotOnePathSegment { .. })
+        ),
+        "`{value}` would let a rung name a file outside the config directory"
+      );
+    }
+  }
+
+  #[test]
+  fn a_rung_that_is_not_there_is_skipped_where_a_literal_would_end_the_boot() {
+    let mut provider = Provider::default("resources").with_vars(LadderVars {
+      release_env: "nosuchenv".to_owned(),
+      ..lab()
+    });
+    provider.register(&C5DataValue::Map(section(&[
+      ("paths", strings(&["example.json", "${release_env}.json"])),
+      ("format", C5DataValue::String("json".to_owned())),
+    ])));
+    let seen = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let recorder = seen.clone();
+    let set_data_fn: Box<super::SetDataFn> = Box::new(move |key, _| recorder.lock().push(key.to_owned()));
+    provider.hydrate(
+      &*set_data_fn,
+      false,
+      &crate::HydrateContext {
+        logger: std::sync::Arc::new(crate::ConsoleLogger {}),
+      },
+    );
+    let seen = seen.lock();
+    assert!(
+      seen.iter().any(|k| k == "fsr.some"),
+      "the literal entry was still read: {seen:?}"
+    );
+  }
+
+  #[test]
   fn a_refused_section_names_itself_rather_than_panicking() {
-    let e = match Provider::schema_of(&section(&[("format", C5DataValue::Integer(1))])) {
+    let e = match Provider::default("resources").schema_of(&section(&[("format", C5DataValue::Integer(1))])) {
       Err(e) => e,
       Ok(_) => panic!("a format that is not a string must be refused"),
     };

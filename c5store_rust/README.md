@@ -9,7 +9,7 @@ C5Store is a unified store for configuration and secrets. It merges YAML and TOM
 
 ```toml
 [dependencies]
-c5store = "0.4"
+c5store = "0"
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -25,7 +25,7 @@ serde = { version = "1", features = ["derive"] }
 `secrets_systemd` is not part of `full` and is not on by default on any target, so enable it explicitly:
 
 ```toml
-c5store = { version = "0.4", features = ["secrets_systemd"] }
+c5store = { version = "0", features = ["secrets_systemd"] }
 ```
 
 ## What to reach for
@@ -40,6 +40,7 @@ c5store = { version = "0.4", features = ["secrets_systemd"] }
 | Decrypt a secret stored in the config file | `.c5encval` plus `SecretOptions` |
 | Hand a decryption key in from `systemd` | `SecretOptions::load_credentials_from_systemd` |
 | Load a section from an external file | `.provider` plus `C5FileValueProvider` |
+| Layer that file per environment | `paths: [app.toml, "${release_env}.toml"]` plus `with_vars` |
 | Refresh a provider's data on a timer | `C5StoreMgr::set_value_provider(.., secs)` |
 | React when a value changes | `subscribe` or `subscribe_detailed` |
 | Scope every read to one subtree | `branch(path)` |

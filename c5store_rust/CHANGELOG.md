@@ -12,17 +12,18 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 
 ### Added
 
-- `C5FileValueProvider` sections take `paths`, a list read in order with each file's keys landing over the last one's, so a provider-filled section can be a ladder. Since a section merges across every config file that mentions it, a rung can override `paths` and vary the section per environment.
-- `ProviderSchemaError`, naming the section a refused provider directive came from.
+- `paths` on a `C5FileValueProvider` section: files read in order, a later file's keys winning.
+- A `paths` entry may name `${release_env}`, `${env}` or `${region}`, resolved by `C5FileValueProvider::with_vars`. Literal entries are required, interpolated ones optional. A substituted value must be a single path segment.
+- `LadderVars`, `PathEntry` and `ProviderSchemaError`.
 
 ### Changed
 
-- `path` and `paths` are mutually exclusive: a section naming both is refused rather than picking one, since the keys merge across config files and the effective order would otherwise depend on which file contributed which key.
-- `C5FileValueProviderSchema::path: String` is now `paths: Vec<String>`. A section writing `path` holds one entry.
-- `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`. It no longer panics on an absent `.provider`, `.key` or `.keyPath`.
-- A provider section that cannot be read is logged at error and left unregistered, where a malformed one was previously dropped in silence.
-- A provider path that does not exist now panics whether it is relative or absolute. The absolute case previously stored `Null` and abandoned every remaining entry and section, in `HashMap` order, so which other sections were left empty varied between runs.
-- Provider path panics name the section's key path and the path as written. They were bare `unwrap`s reporting an `io::Error` with neither.
+- `path` and `paths` are mutually exclusive; a section naming both is refused.
+- `C5FileValueProviderSchema::path: String` is now `paths: Vec<PathEntry>`.
+- `C5ValueProviderSchema::from_map` answers `ProviderSchemaError` rather than `()`; an absent loader key no longer panics.
+- An unreadable provider section is logged and left unregistered, not dropped silently.
+- A missing provider path panics whether relative or absolute. The absolute case stored `Null` and abandoned the remaining entries and sections.
+- Provider path panics name the section and the path.
 
 ### Deprecated
 
