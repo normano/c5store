@@ -6,7 +6,6 @@ use multimap::MultiMap;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard};
 #[cfg(feature = "secrets")]
 use sha2::{Digest, Sha256};
-use skiplist::SkipMap;
 
 use crate::config_source::ConfigSource;
 use crate::error::ConfigError;
@@ -18,6 +17,7 @@ use crate::telemetry::{Logger, StatsRecorder, TagValue};
 use crate::value::C5DataValue;
 use crate::{ChangeListener, DetailedChangeListener};
 use natlex_sort::NatLexOrderedString;
+use xskiplist::SkipMap;
 
 pub struct C5StoreDataValueRef<'a> {
   pub(self) _lock: RwLockReadGuard<'a, SkipMap<NatLexOrderedString, (C5DataValue, ConfigSource)>>,
@@ -287,7 +287,7 @@ impl C5DataStore {
 
     // Use range scan for efficiency with SkipMap
     let prefix_dot = key.to_string() + ".";
-    let mut range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);
+    let mut range = rwlock.range((Bound::Included(&natural_key_path), Bound::Unbounded));
 
     // Check the first element greater than or equal to the key itself
     if let Some((found_key, _)) = range.next() {
@@ -312,7 +312,7 @@ impl C5DataStore {
         let prefix_key = key_path.to_string() + ".";
         let natural_key_path = NatLexOrderedString::from(key_path);
         let rwlock = self._data.read();
-        let range = rwlock.range(Bound::Included(&natural_key_path), Bound::Unbounded);
+        let range = rwlock.range((Bound::Included(&natural_key_path), Bound::Unbounded));
 
         for entry in range {
           if !(entry.0).0.starts_with(&*prefix_key) {
@@ -357,7 +357,7 @@ impl C5DataStore {
     };
 
     let mut child_paths = BTreeMap::new();
-    for (key_nat_lex, (c5_value, _source)) in data_lock.range(start_bound.as_ref(), Bound::Unbounded) {
+    for (key_nat_lex, (c5_value, _source)) in data_lock.range((start_bound.as_ref(), Bound::Unbounded)) {
       let full_key = &key_nat_lex.0;
 
       if !prefix.is_empty() && !full_key.starts_with(&prefix_dot) {
