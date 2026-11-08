@@ -153,7 +153,7 @@ pub(crate) fn read_config_data(
     type ParserFn = fn(&str, &PathBuf) -> Result<HashMap<String, C5DataValue>, ConfigError>;
     let parser: Option<ParserFn> = match extension {
       Some("yaml") | Some("yml") => Some(|content, path| {
-        serde_yaml::from_str::<HashMap<String, serde_yaml::Value>>(content)
+        yaml_serde::from_str::<HashMap<String, yaml_serde::Value>>(content)
           .map_err(|e| ConfigError::YamlParseError {
             path: path.clone(),
             source: e,

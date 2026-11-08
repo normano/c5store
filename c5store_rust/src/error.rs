@@ -39,7 +39,7 @@ pub enum ConfigError {
   YamlParseError {
     path: PathBuf,
     #[source]
-    source: serde_yaml::Error,
+    source: yaml_serde::Error,
   },
 
   #[cfg(feature = "toml")]

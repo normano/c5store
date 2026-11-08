@@ -9,7 +9,7 @@ pub enum SerializationError {
   #[error("JSON deserialization failed: {0}")]
   Json(#[from] serde_json::Error),
   #[error("YAML deserialization failed: {0}")]
-  Yaml(#[from] serde_yaml::Error),
+  Yaml(#[from] yaml_serde::Error),
   #[cfg(feature = "toml")]
   #[error("TOML deserialization failed: {0}")]
   Toml(#[from] ::toml::de::Error),
@@ -35,14 +35,14 @@ pub fn deserialize_json(raw_value: C5RawValue) -> Result<C5DataValue, Serializat
 }
 
 pub fn deserialize_yaml(raw_value: C5RawValue) -> Result<C5DataValue, SerializationError> {
-  let value_result: Result<serde_yaml::Value, serde_yaml::Error>;
+  let value_result: Result<yaml_serde::Value, yaml_serde::Error>;
 
   match raw_value {
     C5RawValue::Bytes(data) => {
-      value_result = serde_yaml::from_slice(data.as_slice());
+      value_result = yaml_serde::from_slice(data.as_slice());
     }
     C5RawValue::String(data) => {
-      value_result = serde_yaml::from_str(&data);
+      value_result = yaml_serde::from_str(&data);
     }
   }
 
@@ -50,13 +50,13 @@ pub fn deserialize_yaml(raw_value: C5RawValue) -> Result<C5DataValue, Serializat
   Ok(serde_yaml_val_to_c5_value(value))
 }
 
-pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
+pub fn serde_yaml_val_to_c5_value(raw_value: yaml_serde::Value) -> C5DataValue {
   return match raw_value.clone() {
-    serde_yaml::Value::Null => C5DataValue::Null,
-    serde_yaml::Value::Tagged(_) => C5DataValue::Null, // Not supported
-    serde_yaml::Value::Bool(value) => C5DataValue::Boolean(value),
-    serde_yaml::Value::String(value) => C5DataValue::String(value),
-    serde_yaml::Value::Number(value) => {
+    yaml_serde::Value::Null => C5DataValue::Null,
+    yaml_serde::Value::Tagged(_) => C5DataValue::Null, // Not supported
+    yaml_serde::Value::Bool(value) => C5DataValue::Boolean(value),
+    yaml_serde::Value::String(value) => C5DataValue::String(value),
+    yaml_serde::Value::Number(value) => {
       if value.is_f64() {
         C5DataValue::Float(value.as_f64().unwrap())
       } else if value.is_u64() {
@@ -65,12 +65,12 @@ pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
         C5DataValue::Integer(value.as_i64().unwrap())
       }
     }
-    serde_yaml::Value::Sequence(value) => {
+    yaml_serde::Value::Sequence(value) => {
       C5DataValue::Array(value.into_iter().map(|item| serde_yaml_val_to_c5_value(item)).collect())
     }
-    serde_yaml::Value::Mapping(_value) => {
-      let map_result: Result<HashMap<serde_yaml::Value, serde_yaml::Value>, serde_yaml::Error> =
-        serde_yaml::from_value(raw_value);
+    yaml_serde::Value::Mapping(_value) => {
+      let map_result: Result<HashMap<yaml_serde::Value, yaml_serde::Value>, yaml_serde::Error> =
+        yaml_serde::from_value(raw_value);
 
       if map_result.is_err() {
         C5DataValue::Null
@@ -78,10 +78,10 @@ pub fn serde_yaml_val_to_c5_value(raw_value: serde_yaml::Value) -> C5DataValue {
         let mut new_map = HashMap::new();
         for (key, value) in map_result.unwrap() {
           let final_key = match key {
-            serde_yaml::Value::String(key_str) => key_str,
-            serde_yaml::Value::Number(key_num) => key_num.to_string(),
-            serde_yaml::Value::Bool(key_num) => key_num.to_string(),
-            serde_yaml::Value::Null => "null".to_string(),
+            yaml_serde::Value::String(key_str) => key_str,
+            yaml_serde::Value::Number(key_num) => key_num.to_string(),
+            yaml_serde::Value::Bool(key_num) => key_num.to_string(),
+            yaml_serde::Value::Null => "null".to_string(),
             _ => {
               continue; // Should never happen
             }
@@ -128,7 +128,7 @@ pub fn serde_json_val_to_c5_value(raw_value: serde_json::Value) -> C5DataValue {
 }
 
 pub(crate) fn map_from_serde_yaml_valuemap(
-  value_map: HashMap<String, serde_yaml::Value>,
+  value_map: HashMap<String, yaml_serde::Value>,
 ) -> HashMap<String, C5DataValue> {
   let mut result = HashMap::new();
 
