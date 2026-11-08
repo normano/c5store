@@ -22,6 +22,11 @@ Between rolls, an entry goes under `[Unreleased]` in the section matching its ch
 
 ### Security
 
+## [0.5.1] - 2026-11-07
+
+### Changed
+- The store's ordered map is `xskiplist` 0.9 instead of `skiplist` 0.6.
+
 ## [0.5.0] - 2026-09-09
 
 ### Added
