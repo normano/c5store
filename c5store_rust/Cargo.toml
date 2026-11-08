@@ -7,6 +7,7 @@ license = "MPL-2.0"
 
 description = "A comprehensive Rust library for unified configuration and secret management, supporting various sources, typed access, and local encryption."
 readme = "README.md"
+include = ["/src/**/*.rs", "/Cargo.toml", "/LICENSE", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/CHANGELOG.md"]
 homepage = "https://github.com/normano/c5store/tree/main/c5store_rust"
 repository = "https://github.com/normano/c5store.git"
 keywords = ["config", "secrets", "settings", "encryption", "yaml"]
