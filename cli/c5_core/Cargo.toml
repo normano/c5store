@@ -13,26 +13,26 @@ keywords = ["encryption", "secrets", "config", "ecies", "keygen"]
 categories = ["command-line-utilities", "config", "development-tools"]
 
 [dependencies]
-base64 = "^0.21"
-hashlink = "^0.10"
-regex = "^1"
-toml_edit = "^0.22"
+base64 = "0.22"
+hashlink = "0.10"
+regex = "1"
+toml_edit = "0.22"
 serde = { workspace = true }
 thiserror = { workspace = true }
 yaml-rust2 = { workspace = true }
 
 # Crypto dependencies for ECIES X25519
-ecies_25519 = { version = "^0.2" } 
-rand = "^0.9"
-rand_core = "^0.9"
+ecies_25519 = { version = "0.2" } 
+rand = "0.9"
+rand_core = "0.9"
 
 # For Ed25519 (SSH keys generation - new for CLI)
-ed25519-dalek = { package = "xs_ed25519-dalek", version = "^2.1", features = ["pem", "rand_core", "std"] } 
-sshkeys = "^0.3"
+ed25519-dalek = { package = "xs_ed25519-dalek", version = "2.1", features = ["pem", "rand_core", "std"] } 
+sshkeys = "0.3"
 
 [dev-dependencies]
 serial_test = { workspace = true }
-tempfile = "^3"
+tempfile = "3"
 
 [features]
 full = ["default"]
